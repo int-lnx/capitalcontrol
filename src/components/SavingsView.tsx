@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { useExpenses } from '../context/ExpenseContext';
-import { formatCurrency, formatDateFormatted } from '../utils/formatters';
+import { formatCurrency, formatDateFormatted, getTodayString } from '../utils/formatters';
 import type { NecessityLevel } from '../types';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, Clock } from 'lucide-react';
 import { PieChart } from './PieChart';
+import { PeriodPickerModal } from './PeriodPickerModal';
 
 const NECESSITY_METAS: Record<NecessityLevel, { label: string; desc: string; color: string; icon: string }> = {
   Fizyolojik: { label: 'Fizyolojik', desc: 'Mutfak, gıda, su, temel sağlık', color: '#10b981', icon: '🥗' },
@@ -17,11 +18,44 @@ const NECESSITY_METAS: Record<NecessityLevel, { label: string; desc: string; col
 const ALL_LEVELS: NecessityLevel[] = ['Fizyolojik', 'Temel', 'Makul', 'Kaçınılabilir', 'İsraf', 'Tanımsız'];
 
 export const SavingsView: React.FC = () => {
-  const { expenses, categories, accounts } = useExpenses();
+  const { expenses, categories, accounts, setEditingExpense } = useExpenses();
+  const todayStr = getTodayString();
+  const currentMonthKey = new Date().toISOString().substring(0, 7);
 
   const [selectedLevel, setSelectedLevel] = useState<NecessityLevel | 'ALL'>('ALL');
+  const [selectedMonthFilter, setSelectedMonthFilter] = useState<string>(currentMonthKey);
+  const [isPeriodModalOpen, setIsPeriodModalOpen] = useState<boolean>(false);
 
-  // Compute breakdown for each necessity level
+  // Available months (Past and current only)
+  const availableMonths = Array.from(
+    new Set(expenses.filter(e => e.date <= todayStr).map(e => e.date.substring(0, 7)))
+  );
+  if (!availableMonths.includes(currentMonthKey)) {
+    availableMonths.push(currentMonthKey);
+  }
+  availableMonths.sort((a, b) => b.localeCompare(a));
+
+  const formatMonthName = (ym: string) => {
+    if (ym === 'all') return 'Tüm Dönemler';
+    if (ym.length === 4) return `${ym} Yılı`;
+    const [year, m] = ym.split('-');
+    const monthNames = [
+      'Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran',
+      'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'
+    ];
+    return `${monthNames[parseInt(m, 10) - 1] || m} ${year}`;
+  };
+
+  // Base expenses strictly filtered by period
+  const baseExpenses = expenses.filter(exp => {
+    const isPastOrToday = exp.date <= todayStr;
+    const matchesMonth = selectedMonthFilter !== 'all' ? exp.date.startsWith(selectedMonthFilter) : true;
+    return isPastOrToday && matchesMonth;
+  });
+
+  const periodTotalSpent = baseExpenses.reduce((s, e) => s + e.amount, 0);
+
+  // Compute breakdown for each necessity level based on selected period
   const totalsByLevel = ALL_LEVELS.reduce<Record<NecessityLevel, { total: number; count: number }>>(
     (acc, lvl) => {
       acc[lvl] = { total: 0, count: 0 };
@@ -30,7 +64,7 @@ export const SavingsView: React.FC = () => {
     {} as Record<NecessityLevel, { total: number; count: number }>
   );
 
-  expenses.forEach(exp => {
+  baseExpenses.forEach(exp => {
     const rawLvl = exp.necessity as string;
     let lvl: NecessityLevel = 'Tanımsız';
     if (rawLvl === 'Gereksiz') lvl = 'Kaçınılabilir';
@@ -44,8 +78,6 @@ export const SavingsView: React.FC = () => {
     totalsByLevel[lvl].count += 1;
   });
 
-  const grandTotal = expenses.reduce((s, e) => s + e.amount, 0);
-
   // Pie chart data
   const chartData = ALL_LEVELS.map(lvl => ({
     id: lvl,
@@ -55,7 +87,7 @@ export const SavingsView: React.FC = () => {
   })).filter(d => d.value > 0);
 
   // Filtered expense items
-  const filteredExpenses = expenses.filter(exp => {
+  const filteredExpenses = baseExpenses.filter(exp => {
     const rawLvl = exp.necessity as string;
     let expLvl: NecessityLevel = 'Tanımsız';
     if (rawLvl === 'Gereksiz') expLvl = 'Kaçınılabilir';
@@ -68,22 +100,37 @@ export const SavingsView: React.FC = () => {
 
   // Calculate potential savings (Kaçınılabilir + İsraf)
   const wasteAndUnnecessary = (totalsByLevel['Kaçınılabilir']?.total || 0) + (totalsByLevel['İsraf']?.total || 0);
-  const savingsPotentialPercent = grandTotal > 0 ? (wasteAndUnnecessary / grandTotal) * 100 : 0;
+  const savingsPotentialPercent = periodTotalSpent > 0 ? (wasteAndUnnecessary / periodTotalSpent) * 100 : 0;
 
   return (
     <div className="space-y-5">
       
-      {/* 1. PIE CHART EN ÜSTTE */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-            <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-            <span>Tasarruf & İhtiyaç Dağılımı</span>
-          </h3>
-          <span className="text-[10px] text-slate-400">Dilime tıklayarak filtreleyin</span>
+      {/* 1. PIE CHART VE DÖNEM SEÇİCİ EN ÜSTTE */}
+      <div className="space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          {/* Sol Üst: Dönem Seçici Butonu */}
+          <button
+            type="button"
+            onClick={() => setIsPeriodModalOpen(true)}
+            className="flex items-center space-x-1.5 bg-slate-800/90 hover:bg-slate-700/80 border border-slate-700/80 px-2.5 py-1.5 rounded-xl self-start transition-colors"
+            title="Dönem Seçimi Yap"
+          >
+            <Clock className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+            <span className="text-[11px] text-slate-400 font-medium">Dönem:</span>
+            <span className="text-xs font-semibold text-purple-300">
+              {formatMonthName(selectedMonthFilter)}
+            </span>
+          </button>
+
+          <div className="text-right">
+            <span className="text-xs text-slate-400">Dönem Harcama Toplamı: </span>
+            <span className="text-xs font-extrabold text-purple-300">{formatCurrency(periodTotalSpent)}</span>
+          </div>
         </div>
+
         <PieChart
           data={chartData}
+          customTotal={periodTotalSpent > 0 ? periodTotalSpent : undefined}
           selectedLabel={selectedLevel === 'ALL' ? undefined : NECESSITY_METAS[selectedLevel]?.label}
           onSliceClick={(label) => {
             const matchedKey = ALL_LEVELS.find(lvl => NECESSITY_METAS[lvl].label === label || lvl === label);
@@ -91,7 +138,7 @@ export const SavingsView: React.FC = () => {
               setSelectedLevel(prev => (prev === matchedKey ? 'ALL' : matchedKey));
             }
           }}
-          title="Tasarruf Dağılım Pastası"
+          title={`${formatMonthName(selectedMonthFilter)} Tasarruf Dağılımı`}
         />
       </div>
 
@@ -197,7 +244,9 @@ export const SavingsView: React.FC = () => {
               return (
                 <div
                   key={exp.id}
-                  className="p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/60 flex items-center justify-between gap-2.5 text-xs"
+                  onClick={() => setEditingExpense(exp)}
+                  className="p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/60 hover:border-teal-500/50 hover:bg-slate-800 transition-all cursor-pointer flex items-center justify-between gap-2.5 text-xs active:scale-[0.99]"
+                  title="Düzenlemek için tıklayın"
                 >
                   <div className="flex items-center space-x-2.5 min-w-0">
                     <span className="text-sm shrink-0">{meta.icon}</span>
@@ -226,7 +275,7 @@ export const SavingsView: React.FC = () => {
                   </div>
 
                   <div className="text-right flex-shrink-0">
-                    <span className="font-black text-emerald-400 text-xs sm:text-sm">
+                    <span className="font-black text-purple-300 text-xs sm:text-sm">
                       {formatCurrency(exp.amount)}
                     </span>
                   </div>
@@ -236,6 +285,16 @@ export const SavingsView: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Period Picker Modal */}
+      <PeriodPickerModal
+        isOpen={isPeriodModalOpen}
+        onClose={() => setIsPeriodModalOpen(false)}
+        value={selectedMonthFilter}
+        onChange={setSelectedMonthFilter}
+        themeColor="purple"
+        availableMonths={availableMonths}
+      />
 
     </div>
   );

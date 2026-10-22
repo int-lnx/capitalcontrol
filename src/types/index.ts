@@ -26,6 +26,14 @@ export interface Account {
   color: string;
 }
 
+export interface CustomAccountTotal {
+  id: string;
+  name: string;
+  description?: string;
+  accountIds: string[]; // List of account IDs included in this custom group
+  color?: string;
+}
+
 export interface ExpenseLimit {
   id: string;
   name: string;
@@ -53,13 +61,21 @@ export interface Expense {
   recurrenceCount?: number;
   isUnlimitedRecurrence?: boolean; // Sınırsız / sürekli tekrarlayan harcama
   recurrenceBatchId?: string; // Tekrarlı harcama grubunu ilişkilendiren kimlik
+  splitBatchId?: string; // Aynı fiş/faturadan bölünen harcamaları ilişkilendiren kimlik
+  splitTitle?: string; // Ayrım adı veya numarası (Örn: "1. Ayrım", "Market")
+  splitOriginalTotal?: number; // Bölünen ana tutar (örn: 1000 TL)
   accountId?: string;
   limitId?: string;
   necessity?: NecessityLevel;
+  status?: 'pending' | 'approved'; // Onay bekleyen veya onaylanmış harcama
+  pendingApproval?: boolean; // Harcama günü geldiğinde kullanıcı onayı gerekiyor mu
+  askApproval?: boolean; // Taksit/tekrarlı işlemde günü geldiğinde sorulsun mu ayarı
+  startInstallmentNumber?: number; // Başlangıç taksit numarası (örneğin 3'ten başlasın)
+  startRecurrenceNumber?: number; // Başlangıç tekrar numarası (örneğin 5'ten başlasın)
   createdAt: string;
 }
 
-export type MainTabType = 'records' | 'status' | 'accounts';
+export type MainTabType = 'records' | 'status' | 'accounts' | 'profile';
 
 export type TabType = 
   | 'timeline' 
@@ -70,4 +86,6 @@ export type TabType =
   | 'categories' 
   | 'savings' 
   | 'accounts' 
-  | 'limits';
+  | 'totals' 
+  | 'limits'
+  | 'profile';

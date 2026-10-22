@@ -2,10 +2,9 @@ import React, { useState } from 'react';
 import { useExpenses } from '../context/ExpenseContext';
 import { formatCurrency } from '../utils/formatters';
 import { BarChart2 } from 'lucide-react';
-import { PieChart } from './PieChart';
 
 export const MonthlySummaryView: React.FC = () => {
-  const { expenses, categories } = useExpenses();
+  const { expenses } = useExpenses();
 
   const [selectedMonth, setSelectedMonth] = useState<string>('');
 
@@ -36,38 +35,6 @@ export const MonthlySummaryView: React.FC = () => {
     ];
     return `${monthNames[parseInt(m, 10) - 1] || m} ${year}`;
   };
-
-  const activeMonthData = activeMonth ? monthMap[activeMonth] : null;
-
-  // Breakdown by category for selected month
-  const categoryBreakdown = activeMonthData
-    ? categories.map(cat => {
-        const spent = activeMonthData.items
-          .filter(e => e.categoryId === cat.id)
-          .reduce((sum, e) => sum + e.amount, 0);
-        return {
-          id: cat.id,
-          label: cat.name,
-          value: spent,
-          color: cat.color,
-        };
-      }).filter(c => c.value > 0)
-    : [];
-
-  // Add uncategorized if any
-  if (activeMonthData) {
-    const uncatSpent = activeMonthData.items
-      .filter(e => !e.categoryId)
-      .reduce((sum, e) => sum + e.amount, 0);
-    if (uncatSpent > 0) {
-      categoryBreakdown.push({
-        id: 'general',
-        label: 'Genel (Kategorisiz)',
-        value: uncatSpent,
-        color: '#64748b',
-      });
-    }
-  }
 
   const grandTotal = Object.values(monthMap).reduce((s, m) => s + m.total, 0);
   const avgMonthly = sortedMonths.length > 0 ? grandTotal / sortedMonths.length : 0;
@@ -111,26 +78,7 @@ export const MonthlySummaryView: React.FC = () => {
         </div>
       </div>
 
-      {/* 1. GELECEK AYLAR (Varsa özel vurgulu blok) */}
-      {/* 1. SEÇİLİ AYIN GRAFİĞİ EN ÜSTTE */}
-      {activeMonthData && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-              <span>📊</span>
-              <span>{formatMonthTitle(activeMonth)} Kategori Dağılımı (Yüzdesel)</span>
-            </h3>
-            <span className="text-xs font-bold text-emerald-400">
-              Seçili Ay Toplamı: {formatCurrency(activeMonthData.total)}
-            </span>
-          </div>
 
-          <PieChart
-            data={categoryBreakdown}
-            title={`${formatMonthTitle(activeMonth)} Dağılım Grafiği`}
-          />
-        </div>
-      )}
 
       {/* 2. GELECEK AYLAR (Varsa özel vurgulu blok) */}
       {futureMonths.length > 0 && (

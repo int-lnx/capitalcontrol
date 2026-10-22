@@ -1,0 +1,19 @@
+{
+  "name": "Capital Control - Masraf Yönetimi",
+  "short_name": "CapitalControl",
+  "description": "Kişisel masraf, bütçe limiti, taksit ve harcama yönetimi takip uygulaması.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "categories": ["finance", "productivity", "utilities"],
+  "icons": [
+    {
+      "src": "/app-icon.svg",
+      "sizes": "192x192 512x512 any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

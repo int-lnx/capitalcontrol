@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import type { MainTabType, TabType } from '../types';
 import {
   Wallet,
@@ -12,11 +12,12 @@ import {
   FolderTree,
   Sparkles,
   Plus,
-  RotateCcw,
   LogIn,
   LogOut,
   Cloud,
   Loader2,
+  Download,
+  User as UserIcon,
 } from 'lucide-react';
 import { useExpenses } from '../context/ExpenseContext';
 import { useAuth } from '../context/AuthContext';
@@ -34,8 +35,35 @@ export const Header: React.FC<HeaderProps> = ({
   setActiveSubTab,
   onOpenAddModal,
 }) => {
-  const { resetToDefaultData, isCloudSyncing } = useExpenses();
+  const { isCloudSyncing } = useExpenses();
   const { user, loading, signInWithGoogle, signOut } = useAuth();
+
+  // PWA Install Prompt State
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [canInstall, setCanInstall] = useState<boolean>(false);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setCanInstall(true);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setCanInstall(false);
+    }
+    setDeferredPrompt(null);
+  };
 
   const today = new Date();
   const todayFormatted = today.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' });
@@ -55,7 +83,11 @@ export const Header: React.FC<HeaderProps> = ({
     ],
     accounts: [
       { id: 'accounts', label: 'Hesaplar & Bakiyeler', icon: <CreditCard className="w-3.5 h-3.5" /> },
+      { id: 'totals', label: 'Toplamlar', icon: <BarChart2 className="w-3.5 h-3.5 text-teal-400" /> },
       { id: 'limits', label: 'Limitler & Bütçeler', icon: <ShieldAlert className="w-3.5 h-3.5" /> },
+    ],
+    profile: [
+      { id: 'profile', label: 'Profil & Veri Dışa Aktarma', icon: <UserIcon className="w-3.5 h-3.5 text-emerald-400" /> },
     ],
   };
 
@@ -74,8 +106,11 @@ export const Header: React.FC<HeaderProps> = ({
               <Wallet className="w-4 h-4 text-slate-950 font-bold" />
             </div>
             <div className="truncate">
-              <h1 className="text-sm sm:text-base font-bold bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent truncate leading-tight">
-                Masraf Yönetimi
+              <h1 className="text-sm sm:text-base font-bold bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent truncate leading-tight flex items-center gap-1.5">
+                <span>Masraf Yönetimi</span>
+                <span className="text-[10px] font-mono font-semibold px-1.5 py-0.2 rounded bg-teal-500/15 text-teal-300 border border-teal-500/30 tracking-tight shrink-0">
+                  rev 1.4
+                </span>
               </h1>
               <div className="flex items-center gap-1 text-[10px] text-slate-400 leading-none">
                 <span className="hidden sm:inline">Finans Portalı</span>
@@ -141,17 +176,18 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
 
-            <button
-              onClick={() => {
-                if (confirm('Tüm verileri varsayılana sıfırlamak istediğinize emin misiniz?')) {
-                  resetToDefaultData();
-                }
-              }}
-              title="Demo verileri sıfırla"
-              className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800/60 rounded-lg transition-colors"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-            </button>
+            {/* PWA Install Button */}
+            {canInstall && (
+              <button
+                onClick={handleInstallClick}
+                className="flex items-center space-x-1 px-2.5 py-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs rounded-lg shadow-md shadow-indigo-500/25 transition-all animate-pulse"
+                title="Uygulamayı Cihazınıza Yükleyin"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Uygulamayı Yükle</span>
+                <span className="sm:hidden">Yükle</span>
+              </button>
+            )}
 
             <button
               onClick={onOpenAddModal}

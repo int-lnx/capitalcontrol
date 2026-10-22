@@ -1,6 +1,6 @@
 import React from 'react';
 import type { MainTabType } from '../types';
-import { BookOpen, BarChart3, Wallet } from 'lucide-react';
+import { BookOpen, BarChart3, Wallet, User } from 'lucide-react';
 
 interface BottomNavProps {
   activeMainTab: MainTabType;
@@ -12,6 +12,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeMainTab, onSelectMai
     { id: 'records', label: 'Kayıtlar', icon: <BookOpen className="w-4 h-4" /> },
     { id: 'status', label: 'Durum', icon: <BarChart3 className="w-4 h-4" /> },
     { id: 'accounts', label: 'Hesaplar', icon: <Wallet className="w-4 h-4" /> },
+    { id: 'profile', label: 'Profil', icon: <User className="w-4 h-4" /> },
   ];
 
   return (

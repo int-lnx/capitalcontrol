@@ -14,6 +14,7 @@ import { CategoryManagerView } from './components/CategoryManagerView';
 import { SavingsView } from './components/SavingsView';
 import { AccountsView } from './components/AccountsView';
 import { LimitsView } from './components/LimitsView';
+import { ProfileView } from './components/ProfileView';
 
 import { useExpenses } from './context/ExpenseContext';
 
@@ -34,6 +35,8 @@ export function AppContent() {
       setActiveSubTab('savings');
     } else if (mainTab === 'accounts') {
       setActiveSubTab('accounts');
+    } else if (mainTab === 'profile') {
+      setActiveSubTab('profile');
     }
   };
 
@@ -59,9 +62,15 @@ export function AppContent() {
       
       // Accounts tabs
       case 'accounts':
-        return <AccountsView />;
+        return <AccountsView initialTab="accounts" />;
+      case 'totals':
+        return <AccountsView initialTab="totals" />;
       case 'limits':
         return <LimitsView />;
+
+      // Profile tab
+      case 'profile':
+        return <ProfileView />;
 
       default:
         return <TimelineView />;
@@ -87,7 +96,7 @@ export function AppContent() {
       {/* Footer */}
       <footer className="border-t border-slate-900 bg-slate-950 py-4 text-center text-xs text-slate-500 pb-16">
         <div className="max-w-7xl mx-auto px-4">
-          <p>© {new Date().getFullYear()} Masraf Yönetimi • Akıllı Finans & Tasarruf Portalı</p>
+          <p>© {new Date().getFullYear()} Masraf Yönetimi (rev 1.4) • Akıllı Finans & Tasarruf Portalı</p>
         </div>
       </footer>
 

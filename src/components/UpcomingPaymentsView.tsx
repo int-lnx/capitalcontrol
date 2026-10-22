@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useExpenses } from '../context/ExpenseContext';
 import { formatCurrency, formatDateFormatted, getTodayString } from '../utils/formatters';
 import { FastForward, Calendar, CheckCircle2, Edit3, Trash2, X } from 'lucide-react';
+import { TagChips } from './TagChips';
 
 const NECESSITY_BORDER_STYLES: Record<string, { border: string; bg: string; text: string; label: string }> = {
   Fizyolojik: {
@@ -138,13 +139,15 @@ export const UpcomingPaymentsView: React.FC = () => {
                     const isMenuOpen = activeMenuId === exp.id;
 
                     return (
-                      <div key={exp.id} className="relative select-none">
+                      <div key={exp.id} className="relative select-none group">
                         <div
+                          onClick={() => setEditingExpense(exp)}
                           onContextMenu={(e) => {
                             e.preventDefault();
                             setActiveMenuId(exp.id);
                           }}
-                          className={`p-2.5 sm:p-3 rounded-2xl border transition-all ${styleInfo.border} ${styleInfo.bg} backdrop-blur-sm flex flex-col gap-2`}
+                          className={`p-2.5 sm:p-3 rounded-2xl border transition-all ${styleInfo.border} ${styleInfo.bg} hover:border-amber-500/60 hover:shadow-lg hover:shadow-amber-950/20 active:scale-[0.99] cursor-pointer backdrop-blur-sm flex flex-col gap-2`}
+                          title="Harcamayı düzenlemek için tıklayın (Yaptığınız değişiklikler tüm seriyi günceller)"
                         >
                           {/* Top Row: Category (Left), Middle Info, Amount & Installment (Right) */}
                           <div className="flex items-start justify-between gap-2">
@@ -218,6 +221,11 @@ export const UpcomingPaymentsView: React.FC = () => {
                                     (Top: {formatCurrency(exp.totalAmount)})
                                   </span>
                                 )}
+                                {exp.askApproval && (
+                                  <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20 mt-0.5">
+                                    Günü Gelince Sorulacak
+                                  </span>
+                                )}
                               </div>
                             </div>
 
@@ -226,14 +234,7 @@ export const UpcomingPaymentsView: React.FC = () => {
                           {/* Bottom Row: Tags extending full width, horizontally scrollable */}
                           {exp.tags && exp.tags.length > 0 && (
                             <div className="w-full overflow-x-auto no-scrollbar flex items-center gap-1.5 pt-1 border-t border-slate-800/40">
-                              {exp.tags.map(tag => (
-                                <span
-                                  key={tag}
-                                  className="text-[9px] px-2 py-0.5 rounded-md bg-slate-800/90 text-teal-300 border border-teal-500/20 whitespace-nowrap flex-shrink-0"
-                                >
-                                  #{tag}
-                                </span>
-                              ))}
+                              <TagChips tags={exp.tags} size="xs" />
                             </div>
                           )}
                         </div>
@@ -280,6 +281,11 @@ export const UpcomingPaymentsView: React.FC = () => {
           })}
         </div>
       )}
+
+      {/* Helpful Hint */}
+      <div className="text-center py-1 text-[10px] text-slate-500">
+        💡 İpucu: Gelecek bir harcamayı değiştirmek için karta <b>tıklayın</b>. Burada yapılan değişiklikler tüm taksit / tekrar serisine yansıtılır.
+      </div>
 
     </div>
   );

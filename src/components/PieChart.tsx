@@ -1,5 +1,19 @@
 import React, { useState } from 'react';
 
+export interface PieSubItem {
+  id?: string;
+  label: string;
+  value: number;
+}
+
+export interface PieChartItem {
+  label: string;
+  value: number;
+  color?: string;
+  id?: string;
+  subItems?: PieSubItem[];
+}
+
 interface PieSlice {
   label: string;
   value: number;
@@ -7,10 +21,11 @@ interface PieSlice {
   percentage: number;
   subLabel?: string;
   id?: string;
+  subItems?: PieSubItem[];
 }
 
 interface PieChartProps {
-  data: { label: string; value: number; color?: string; id?: string }[];
+  data: PieChartItem[];
   title?: string;
   onSliceClick?: (label: string, id?: string) => void;
   selectedLabel?: string;
@@ -59,6 +74,7 @@ export const PieChart: React.FC<PieChartProps> = ({
         startAngle,
         endAngle: cumulativeAngle,
         id: item.id,
+        subItems: item.subItems,
       };
     });
 
@@ -133,37 +149,68 @@ export const PieChart: React.FC<PieChartProps> = ({
       </div>
 
       {/* Legend & Percentages List */}
-      <div className="flex-1 w-full space-y-2 max-h-52 overflow-y-auto pr-1">
+      <div className="flex-1 w-full space-y-2 max-h-64 overflow-y-auto pr-1">
         {title && <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">{title}</h3>}
         {slices.map((slice, i) => {
           const isSelected = selectedLabel === slice.label;
+          const hasSubItems = slice.subItems && slice.subItems.length > 0;
+
           return (
-            <button
-              key={slice.label + i}
-              type="button"
-              onClick={() => onSliceClick && onSliceClick(slice.label, slice.id)}
-              className={`w-full flex items-center justify-between px-3 py-1.5 rounded-xl border text-left text-xs transition-all ${
-                isSelected
-                  ? 'bg-slate-800 border-teal-500 shadow-sm shadow-teal-500/10'
-                  : 'bg-slate-900/60 border-slate-800/80 hover:bg-slate-800/50 hover:border-slate-700'
-              }`}
-            >
-              <div className="flex items-center space-x-2.5 min-w-0">
-                <span
-                  className="w-3 h-3 rounded-full flex-shrink-0"
-                  style={{ backgroundColor: slice.color }}
-                />
-                <span className="font-medium text-slate-200 truncate">{slice.label}</span>
-              </div>
-              <div className="flex items-center space-x-3 ml-2 flex-shrink-0">
-                <span className="text-slate-400 font-semibold text-[11px]">
-                  %{slice.percentage.toFixed(1)}
-                </span>
-                <span className="font-bold text-slate-100">
-                  {slice.value.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺
-                </span>
-              </div>
-            </button>
+            <div key={slice.label + i} className="space-y-1">
+              <button
+                type="button"
+                onClick={() => onSliceClick && onSliceClick(slice.label, slice.id)}
+                className={`w-full flex items-center justify-between px-3 py-1.5 rounded-xl border text-left text-xs transition-all ${
+                  isSelected
+                    ? 'bg-slate-800 border-teal-500 shadow-sm shadow-teal-500/10'
+                    : 'bg-slate-900/60 border-slate-800/80 hover:bg-slate-800/50 hover:border-slate-700'
+                }`}
+              >
+                <div className="flex items-center space-x-2.5 min-w-0">
+                  <span
+                    className="w-3 h-3 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: slice.color }}
+                  />
+                  <span className="font-medium text-slate-200 truncate">{slice.label}</span>
+                </div>
+                <div className="flex items-center space-x-3 ml-2 flex-shrink-0">
+                  <span className="text-slate-400 font-semibold text-[11px]">
+                    %{slice.percentage.toFixed(1)}
+                  </span>
+                  <span className="font-bold text-slate-100">
+                    {slice.value.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺
+                  </span>
+                </div>
+              </button>
+
+              {/* Sub-items (Alt Kategoriler / Detaylar) */}
+              {hasSubItems && (
+                <div className="ml-5 pl-2.5 border-l-2 border-slate-800/80 space-y-1 py-0.5">
+                  {slice.subItems!.map((sub, subIdx) => {
+                    const subPercent = slice.value > 0 ? (sub.value / slice.value) * 100 : 0;
+                    return (
+                      <div
+                        key={sub.id || sub.label + subIdx}
+                        className="flex items-center justify-between text-[11px] text-slate-400 hover:text-slate-200 py-0.5 px-1.5 rounded-lg transition-colors"
+                      >
+                        <div className="flex items-center space-x-1.5 min-w-0">
+                          <span className="text-slate-600 font-mono text-[10px]">•</span>
+                          <span className="truncate text-slate-300 font-medium">{sub.label}</span>
+                        </div>
+                        <div className="flex items-center space-x-2 ml-2 flex-shrink-0">
+                          <span className="text-[10px] text-slate-500">
+                            %{subPercent.toFixed(0)}
+                          </span>
+                          <span className="font-semibold text-slate-300">
+                            {sub.value.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           );
         })}
       </div>
