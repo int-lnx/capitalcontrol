@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Tag as TagIcon, Check, Calendar, CreditCard, ShieldAlert, Sparkles, Edit3, Repeat, Clock, TrendingUp, Trash2, Plus, Scissors, Layers } from 'lucide-react';
+import { X, Tag as TagIcon, Check, Calendar, CreditCard, ShieldAlert, Sparkles, Edit3, Repeat, Clock, TrendingUp, Trash2, Plus, Scissors, Layers, Coins } from 'lucide-react';
 import { useExpenses } from '../context/ExpenseContext';
 import type { PaymentType, RecurrenceFrequency, NecessityLevel, Expense } from '../types';
 import { getTodayString, formatCurrency } from '../utils/formatters';
@@ -87,8 +87,10 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
   const [isSplitMode, setIsSplitMode] = useState<boolean>(false);
   const [isSplitBarOpen, setIsSplitBarOpen] = useState<boolean>(false);
   const [splitInputAmount, setSplitInputAmount] = useState<string>('');
+  const [splitInputTitle, setSplitInputTitle] = useState<string>('');
   const [splits, setSplits] = useState<SplitItem[]>([]);
   const [activeSplitIndex, setActiveSplitIndex] = useState<number>(0);
+  const [activeSplitAmountInput, setActiveSplitAmountInput] = useState<string>('');
 
   // Quick category creation states
   const [isQuickAddingCat, setIsQuickAddingCat] = useState<boolean>(false);
@@ -111,7 +113,7 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
           
           const reconstructedSplits: SplitItem[] = sortedBatch.map((item, idx) => ({
             id: `split-${idx + 1}`,
-            name: `${idx + 1}. Ayrım`,
+            name: item.title || `${idx + 1}. Ayrım`,
             amount: item.totalAmount || item.amount,
             categoryId: item.categoryId || '',
             subcategoryId: item.subcategoryId || '',
@@ -145,7 +147,10 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
           setSplits(reconstructedSplits);
           setIsSplitMode(true);
           setIsSplitBarOpen(false);
+          setSplitInputAmount('');
+          setSplitInputTitle('');
           setActiveSplitIndex(activeIdx);
+          setActiveSplitAmountInput(String(currentItem.totalAmount || currentItem.amount));
           return;
         }
       }
@@ -217,8 +222,11 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
       setTags([]);
       setIsSplitMode(false);
       setIsSplitBarOpen(false);
+      setSplitInputAmount('');
+      setSplitInputTitle('');
       setSplits([]);
       setActiveSplitIndex(0);
+      setActiveSplitAmountInput('');
     }
   }, [editingExpense, isOpen, expenses]);
 
@@ -383,7 +391,6 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
 
       // If new total is less than the sum of other splits, show warning / validation error
       if (newTotal <= fixedSplitsSum) {
-        // We still allow user to adjust or show feedback
         setSplits(prev => {
           const next = [...prev];
           const lastIdx = next.length - 1;
@@ -393,6 +400,9 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
           };
           return next;
         });
+        if (activeSplitIndex === splits.length - 1) {
+          setActiveSplitAmountInput('0');
+        }
         return;
       }
 
@@ -407,6 +417,9 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
         };
         return next;
       });
+      if (activeSplitIndex === splits.length - 1) {
+        setActiveSplitAmountInput(String(newRemaining));
+      }
     }
   };
 
@@ -417,6 +430,7 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
       return;
     }
     setSplitInputAmount('');
+    setSplitInputTitle('');
     setIsSplitBarOpen(true);
   };
 
@@ -427,6 +441,8 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
       return;
     }
 
+    const customTitle = splitInputTitle.trim();
+
     // SCENARIO 1: İlk kez ayırma işlemi (tek harcamadan 2 ayrıma)
     if (!isSplitMode || splits.length === 0) {
       if (splitVal >= rawNumber) {
@@ -436,49 +452,53 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
 
       const remainingVal = Math.round((rawNumber - splitVal) * 100) / 100;
 
-      // 1. Ayrım: Kullanıcının girdiği ve yeni ayırdığı kısım (yeni başlık ve seçimler atanacak)
+      // 1. Ayrım: Kullanıcının girdiği ve yeni ayırdığı kısım (kullanıcının girdiği başlık atanır)
+      const split1Title = customTitle || '1. Ayrım';
+      const split2Title = title.trim() || '2. Ayrım';
+
       const split1: SplitItem = {
         id: 'split-1',
-        name: `1. Ayrım (${rawNumber} TL)`,
+        name: split1Title,
         amount: splitVal,
         categoryId: '',
         subcategoryId: '',
         necessity: 'Tanımsız',
         limitId: '',
         tags: [],
-        title: `1. Ayrım (${rawNumber} TL)`,
+        title: split1Title,
       };
 
       // 2. Ayrım (Kalan kısım): Bölünmeden önceki orijinal başlık, kategori ve etiketleri üzerine alır
       const split2: SplitItem = {
         id: 'split-2',
-        name: `2. Ayrım (${rawNumber} TL)`,
+        name: split2Title,
         amount: remainingVal,
         categoryId,
         subcategoryId,
         necessity,
         limitId,
         tags: [...tags],
-        title: title || `2. Ayrım (${rawNumber} TL)`,
+        title: split2Title,
       };
 
       setSplits([split1, split2]);
       setIsSplitMode(true);
       setIsSplitBarOpen(false);
-      // Yeni ayrılan kısma odaklan ve form alanlarını temizle ki yeni başlık/kategori girilsin
+      setSplitInputAmount('');
+      setSplitInputTitle('');
+      // Yeni ayrılan kısma odaklan ve form alanlarını ayarla
       setActiveSplitIndex(0);
+      setActiveSplitAmountInput(String(splitVal));
       setCategoryId('');
       setSubcategoryId('');
       setNecessity('Tanımsız');
       setLimitId('');
       setTags([]);
-      setTitle(`1. Ayrım (${rawNumber} TL)`);
+      setTitle(split1Title);
       return;
     }
 
     // SCENARIO 2: RECURRING SPLIT - Seçili mevcut sekmeden yeni bir parça ayırma
-    // Seçili sekmeden splitVal miktarı yeni bir ayrım olarak koparılır (yeni başlık/kategori alır)
-    // Seçili sekmede ise kalan miktar kalır ve önceki etiket/kategorilerini korur.
     const activeSplit = splits[activeSplitIndex];
     if (!activeSplit) return;
 
@@ -491,22 +511,23 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
 
     const separatedPortion = splitVal;
     const remainingPortion = Math.round((activeSplit.amount - splitVal) * 100) / 100;
+    const newSplitTitle = customTitle || `${splits.length + 1}. Ayrım`;
 
     // Build new updated splits array
     const newSplits: SplitItem[] = [];
     splits.forEach((s, idx) => {
       if (idx === activeSplitIndex) {
-        // Yeni ayrılan kısım (boş/yeni seçimler ve başlık alır)
+        // Yeni ayrılan kısım
         newSplits.push({
           id: `split-${Date.now()}`,
-          name: '',
+          name: newSplitTitle,
           amount: separatedPortion,
           categoryId: '',
           subcategoryId: '',
           necessity: 'Tanımsız',
           limitId: '',
           tags: [],
-          title: '',
+          title: newSplitTitle,
         });
 
         // Kalan kısım: Mevcut etiket, kategori ve başlıklarını korur
@@ -525,31 +546,29 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
       }
     });
 
-    // Re-index all split names and titles nicely
-    const reindexedSplits = newSplits.map((s, idx) => ({
-      ...s,
-      name: `${idx + 1}. Ayrım (${rawNumber} TL)`,
-      title: s.title || `${idx + 1}. Ayrım (${rawNumber} TL)`,
-    }));
-
-    setSplits(reindexedSplits);
+    setSplits(newSplits);
     setIsSplitBarOpen(false);
-    // Yeni ayrılan sekme (activeSplitIndex konumundaki yeni parça) aktif olsun ve form sıfırlansın
+    setSplitInputAmount('');
+    setSplitInputTitle('');
     setActiveSplitIndex(activeSplitIndex);
+    setActiveSplitAmountInput(String(separatedPortion));
     setCategoryId('');
     setSubcategoryId('');
     setNecessity('Tanımsız');
     setLimitId('');
     setTags([]);
-    setTitle(`${activeSplitIndex + 1}. Ayrım (${rawNumber} TL)`);
+    setTitle(newSplitTitle);
   };
 
   const handleCancelSplitMode = () => {
     if (confirm('Ayrımı iptal edip harcamayı tek parça haline getirmek istiyor musunuz?')) {
       setIsSplitMode(false);
       setIsSplitBarOpen(false);
+      setSplitInputAmount('');
+      setSplitInputTitle('');
       setSplits([]);
       setActiveSplitIndex(0);
+      setActiveSplitAmountInput('');
     }
   };
 
@@ -580,18 +599,51 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
       currentSplit.limitId = limitId;
       currentSplit.tags = [...tags];
       currentSplit.title = title;
+      currentSplit.name = title || currentSplit.name;
       currentSplit.amount = splits[activeSplitIndex].amount;
     }
 
     // Switch to target split and populate form fields
     const targetSplit = splits[index];
     setActiveSplitIndex(index);
+    setActiveSplitAmountInput(String(targetSplit.amount || ''));
     setCategoryId(targetSplit.categoryId || '');
     setSubcategoryId(targetSplit.subcategoryId || '');
     setNecessity(targetSplit.necessity || 'Tanımsız');
     setLimitId(targetSplit.limitId || '');
     setTags([...targetSplit.tags]);
     setTitle(targetSplit.title || '');
+  };
+
+  // Handler for active split's amount modification: updates split amount and automatically recalculates total
+  const handleSplitAmountInputChange = (valStr: string) => {
+    setActiveSplitAmountInput(valStr);
+    const parsed = parseFloat(valStr);
+    const newAmount = isNaN(parsed) ? 0 : Math.max(0, parsed);
+
+    setSplits(prev => {
+      const next = [...prev];
+      if (!next[activeSplitIndex]) return prev;
+      next[activeSplitIndex] = {
+        ...next[activeSplitIndex],
+        amount: newAmount,
+      };
+
+      // Recalculate total amount from all splits
+      const newTotal = next.reduce((sum, s) => sum + s.amount, 0);
+      const roundedTotal = Math.round(newTotal * 100) / 100;
+      setAmount(String(roundedTotal));
+
+      return next;
+    });
+  };
+
+  // Handler for title change: immediately syncs with active split title & tab name
+  const handleTitleChange = (newTitle: string) => {
+    setTitle(newTitle);
+    if (isSplitMode && splits[activeSplitIndex]) {
+      updateActiveSplit({ title: newTitle, name: newTitle || `${activeSplitIndex + 1}. Ayrım` });
+    }
   };
 
   // Keep active split item synced as user edits inputs
@@ -632,7 +684,11 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
     setEditingExpense(null);
     setIsSplitMode(false);
     setIsSplitBarOpen(false);
+    setSplitInputAmount('');
+    setSplitInputTitle('');
     setSplits([]);
+    setActiveSplitIndex(0);
+    setActiveSplitAmountInput('');
     onClose();
   };
 
@@ -661,7 +717,7 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
             necessity,
             limitId,
             tags: [...tags],
-            title: title.trim() || s.title || `${idx + 1}. Ayrım (${rawNumber} TL)`,
+            title: title.trim() || s.title || `${idx + 1}. Ayrım`,
           };
         }
         return s;
@@ -713,7 +769,7 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
           limitId: sp.limitId || undefined,
           splitBatchId,
           splitOriginalTotal: rawNumber,
-          splitTitle: `${idx + 1}. Ayrım (${rawNumber} TL)`,
+          splitTitle: sp.title || `${idx + 1}. Ayrım (${rawNumber} TL)`,
         };
       });
 
@@ -1370,7 +1426,7 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
                   <button
                     type="button"
                     onClick={handleConfirmSplit}
-                    className="px-3.5 py-1.5 bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold text-xs rounded-lg transition-colors shadow-sm"
+                    className="px-3.5 py-1.5 bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold text-xs rounded-lg transition-colors shadow-sm shrink-0"
                   >
                     OK / Ayır
                   </button>
@@ -1378,11 +1434,28 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
                   <button
                     type="button"
                     onClick={() => setIsSplitBarOpen(false)}
-                    className="p-1.5 text-slate-400 hover:text-white rounded-lg"
+                    className="p-1.5 text-slate-400 hover:text-white rounded-lg shrink-0"
                     title="Kapat"
                   >
                     <X className="w-4 h-4" />
                   </button>
+                </div>
+
+                {/* Ayrılacak Tutarın Hemen Altında: Ayrılan Yerin Başlığı */}
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Ayırdığınız yerin başlığı (Örn: Market, Giyim, Yemek...)"
+                    value={splitInputTitle}
+                    onChange={e => setSplitInputTitle(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleConfirmSplit();
+                      }
+                    }}
+                    className="w-full px-3 py-1.5 bg-slate-800/90 border border-slate-700/80 focus:border-teal-400 rounded-lg text-xs text-white placeholder-slate-500 outline-none"
+                  />
                 </div>
 
                 {parseFloat(splitInputAmount) > 0 && (
@@ -1464,8 +1537,8 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
                         }`}
                       >
                         <div className="flex items-center justify-between">
-                          <span className={`text-[11px] font-bold truncate mr-1 ${isTabActive ? 'text-teal-300' : 'text-slate-300'}`}>
-                            {idx + 1}. Ayrım ({rawNumber} TL)
+                          <span className={`text-[11px] font-bold truncate mr-1.5 ${isTabActive ? 'text-teal-300' : 'text-slate-300'}`}>
+                            {sp.title || `${idx + 1}. Ayrım`}
                           </span>
                           <span className={`text-xs font-black shrink-0 ${isTabActive ? 'text-emerald-300' : 'text-slate-200'}`}>
                             {formatCurrency(sp.amount)}
@@ -1478,6 +1551,34 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
                     );
                   })}
                 </div>
+
+                {/* AKTİF AYRIM TUTARI DÜZENLEME KARTI */}
+                {splits[activeSplitIndex] && (
+                  <div className="p-2.5 bg-gradient-to-r from-teal-950/40 via-slate-800/60 to-slate-800/40 rounded-xl border border-teal-500/40 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-2 mt-2">
+                    <div>
+                      <label className="text-xs font-bold text-teal-300 flex items-center gap-1.5">
+                        <Coins className="w-3.5 h-3.5 text-teal-400" />
+                        <span>{splits[activeSplitIndex].title || `${activeSplitIndex + 1}. Ayrım`} Tutarı</span>
+                      </label>
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        Bu ayrımın tutarını değiştirebilirsiniz. Toplam tutar otomatik güncellenir.
+                      </p>
+                    </div>
+                    <div className="relative w-full sm:w-44">
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        required
+                        placeholder="0.00"
+                        value={activeSplitAmountInput}
+                        onChange={e => handleSplitAmountInputChange(e.target.value)}
+                        className="w-full px-3 py-1.5 bg-slate-900/90 border border-teal-500/60 focus:border-teal-400 rounded-lg text-white font-bold text-right pr-9 outline-none text-sm transition-all focus:ring-1 focus:ring-teal-400/50"
+                      />
+                      <span className="absolute right-3 top-1.5 text-xs text-teal-400 font-bold pointer-events-none">TL</span>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1486,7 +1587,7 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
           <div className="flex items-center gap-2 py-0.5">
             <div className="flex-1 border-t border-slate-800"></div>
             <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">
-              {isSplitMode ? `${activeSplitIndex + 1}. Ayrım Detayları (${formatCurrency(splits[activeSplitIndex]?.amount || 0)})` : 'Masraf Detayları'}
+              {isSplitMode ? `${splits[activeSplitIndex]?.title || `${activeSplitIndex + 1}. Ayrım`} Detayları (${formatCurrency(splits[activeSplitIndex]?.amount || 0)})` : 'Masraf Detayları'}
             </span>
             <div className="flex-1 border-t border-slate-800"></div>
           </div>
@@ -1529,7 +1630,7 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
                 type="text"
                 placeholder="Örn: Market alışverişi, Kira, Kahve..."
                 value={title}
-                onChange={e => setTitle(e.target.value)}
+                onChange={e => handleTitleChange(e.target.value)}
                 className="w-full px-3 py-1.5 bg-slate-800/80 border border-slate-700 focus:border-emerald-500 rounded-xl text-xs text-white placeholder-slate-500 outline-none"
               />
             </div>

@@ -6,7 +6,15 @@ import { PieChart } from './PieChart';
 import { PeriodPickerModal } from './PeriodPickerModal';
 import { TagChips } from './TagChips';
 
-export const CategoryManagerView: React.FC = () => {
+interface CategoryManagerViewProps {
+  periodFilter?: string;
+  onPeriodFilterChange?: (p: string) => void;
+}
+
+export const CategoryManagerView: React.FC<CategoryManagerViewProps> = ({
+  periodFilter,
+  onPeriodFilterChange,
+}) => {
   const {
     categories,
     expenses,
@@ -28,7 +36,9 @@ export const CategoryManagerView: React.FC = () => {
   const [selectedCatForSub, setSelectedCatForSub] = useState<string | null>(null);
   const [newSubName, setNewSubName] = useState('');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string | null>(null);
-  const [selectedMonthFilter, setSelectedMonthFilter] = useState<string>(currentMonthKey);
+  const [localMonthFilter, setLocalMonthFilter] = useState<string>(currentMonthKey);
+  const selectedMonthFilter = periodFilter !== undefined ? periodFilter : localMonthFilter;
+  const setSelectedMonthFilter = onPeriodFilterChange || setLocalMonthFilter;
   const [isPeriodModalOpen, setIsPeriodModalOpen] = useState<boolean>(false);
 
   // Long-press and Category Action Menu / Merge Modal States

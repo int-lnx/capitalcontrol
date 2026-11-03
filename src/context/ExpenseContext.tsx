@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import type { Expense, Category, Account, ExpenseLimit, CustomAccountTotal } from '../types';
 import { INITIAL_CATEGORIES, INITIAL_ACCOUNTS, INITIAL_LIMITS, INITIAL_EXPENSES } from '../utils/mockData';
-import { normalizeTag, withParentTags, type TagParentsMap } from '../utils/tagHierarchy';
+import { normalizeTag, withParentTags, getChildTags, getParentTags, type TagParentsMap } from '../utils/tagHierarchy';
 import { useAuth } from './AuthContext';
 import { db } from '../firebase';
 
@@ -44,10 +44,14 @@ interface ExpenseContextType {
   mergeTags: (sourceTags: string[], targetTag: string) => void;
   deleteTag: (tagToDelete: string) => void;
   mergeCategories: (sourceCategoryIds: string[], targetCategoryId: string) => void;
-  // Bağlı Etiketler: { altEtiket: üstEtiket }
+  // Bağlı Etiketler: { altEtiket: [üstEtiketler] }
   tagParents: TagParentsMap;
   /** Bir etiketi üst etikete bağlar (parent=null ise bağlantıyı kaldırır). Hata varsa mesaj döndürür. */
   setTagParent: (childTag: string, parentTag: string | null) => string | null;
+  addTagParent: (childTag: string, parentTag: string) => string | null;
+  removeTagParent: (childTag: string, parentTag: string) => void;
+  addTagChild: (parentTag: string, childTag: string) => string | null;
+  removeTagChild: (parentTag: string, childTag: string) => void;
 }
 
 const ExpenseContext = createContext<ExpenseContextType | undefined>(undefined);
@@ -61,6 +65,16 @@ const LOCAL_KEYS = {
   TAG_PARENTS: 'masraf_app_tag_parents',
 };
 
+// Helper: Ay ekleme işleminde ayın son gününü aşmayacak şekilde sınırla (Örn: 30 Ocak -> 28 Şubat)
+function addMonthsClamped(y: number, m: number, d: number, monthsToAdd: number): string {
+  const targetFirstDay = new Date(y, m - 1 + monthsToAdd, 1);
+  const targetYear = targetFirstDay.getFullYear();
+  const targetMonth = targetFirstDay.getMonth();
+  const daysInMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
+  const safeDay = Math.min(d, daysInMonth);
+  return `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}-${String(safeDay).padStart(2, '0')}`;
+}
+
 // Helper: Add recurrence interval to YYYY-MM-DD
 function addRecurrenceToDateString(dateStr: string, frequency: 'gunluk' | 'haftalik' | 'aylik' | 'yillik', step: number): string {
   const [y, m, d] = dateStr.split('-').map(Number);
@@ -73,22 +87,16 @@ function addRecurrenceToDateString(dateStr: string, frequency: 'gunluk' | 'hafta
     return `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}-${String(target.getDate()).padStart(2, '0')}`;
   }
   if (frequency === 'yillik') {
-    const target = new Date(y + step, m - 1, d);
-    return `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}-${String(target.getDate()).padStart(2, '0')}`;
+    return addMonthsClamped(y, m, d, step * 12);
   }
   // Default aylik
-  const target = new Date(y, m - 1 + step, d);
-  return `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}-${String(target.getDate()).padStart(2, '0')}`;
+  return addMonthsClamped(y, m, d, step);
 }
 
-// Helper: Add months to a YYYY-MM-DD string preserving day
+// Helper: Add months to a YYYY-MM-DD string preserving day (clamped to month's last day)
 function addMonthsToDateString(dateStr: string, monthsToAdd: number): string {
   const [y, m, d] = dateStr.split('-').map(Number);
-  const targetDate = new Date(y, m - 1 + monthsToAdd, d);
-  const year = targetDate.getFullYear();
-  const month = String(targetDate.getMonth() + 1).padStart(2, '0');
-  const day = String(targetDate.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  return addMonthsClamped(y, m, d, monthsToAdd);
 }
 
 // Clean object of any undefined fields for Firestore compatibility
@@ -301,13 +309,31 @@ export const ExpenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [expenses]);
 
   // Derive unique tags (harcamalardaki + bağlı etiket tanımlarındaki)
-  const allTags = Array.from(
-    new Set([
-      ...expenses.flatMap(e => (e.tags || []).map(t => t.toLowerCase().trim())),
-      ...Object.keys(tagParents),
-      ...Object.values(tagParents),
-    ].filter(Boolean))
-  ).sort();
+  const allTags = React.useMemo(() => {
+    const set = new Set<string>();
+    expenses.forEach(e => {
+      (e.tags || []).forEach(t => {
+        const norm = normalizeTag(t);
+        if (norm) set.add(norm);
+      });
+    });
+    Object.keys(tagParents).forEach(k => {
+      const norm = normalizeTag(k);
+      if (norm) set.add(norm);
+    });
+    Object.values(tagParents).forEach(val => {
+      if (Array.isArray(val)) {
+        val.forEach(p => {
+          const norm = normalizeTag(p);
+          if (norm) set.add(norm);
+        });
+      } else if (typeof val === 'string') {
+        const norm = normalizeTag(val);
+        if (norm) set.add(norm);
+      }
+    });
+    return Array.from(set).sort();
+  }, [expenses, tagParents]);
 
   const addExpense = (expenseData: Omit<Expense, 'id' | 'createdAt'>) => {
     const isInstallment = expenseData.paymentType === 'taksitli' && (expenseData.installmentCount || 1) > 1;
@@ -1140,10 +1166,17 @@ export const ExpenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // Bağlı etiket eşlemesini güncelle
     const nextTagParents: TagParentsMap = {};
-    Object.entries(tagParents).forEach(([child, parent]) => {
+    Object.entries(tagParents).forEach(([child, parentsVal]) => {
       const c = child === cleanOld ? cleanNew : child;
-      const p = parent === cleanOld ? cleanNew : parent;
-      if (c !== p) nextTagParents[c] = p;
+      const parentsList = Array.isArray(parentsVal)
+        ? parentsVal.map(p => (p === cleanOld ? cleanNew : p))
+        : typeof parentsVal === 'string'
+        ? [parentsVal === cleanOld ? cleanNew : parentsVal]
+        : [];
+      const filtered = Array.from(new Set(parentsList.filter(p => p !== c)));
+      if (filtered.length > 0) {
+        nextTagParents[c] = filtered;
+      }
     });
     setTagParents(nextTagParents);
 
@@ -1180,17 +1213,35 @@ export const ExpenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // Bağlı etiket eşlemesini güncelle: kaynaklar hedefe dönüşür
     const nextTagParents: TagParentsMap = {};
-    Object.entries(tagParents).forEach(([child, parent]) => {
+    const mergedTargetParents: string[] = getParentTags(cleanTarget, tagParents);
+
+    Object.entries(tagParents).forEach(([child, parentsVal]) => {
+      const parentsList = Array.isArray(parentsVal)
+        ? parentsVal
+        : typeof parentsVal === 'string'
+        ? [parentsVal]
+        : [];
+
       if (cleanSources.has(child)) {
-        // Kaynak bir alt etiketse, hedef henüz bağlı değilse bağlantıyı devralır
-        if (!tagParents[cleanTarget] && parent !== cleanTarget && !nextTagParents[cleanTarget]) {
-          nextTagParents[cleanTarget] = parent;
-        }
+        parentsList.forEach(p => {
+          const mappedP = cleanSources.has(p) ? cleanTarget : p;
+          if (mappedP !== cleanTarget && !mergedTargetParents.includes(mappedP)) {
+            mergedTargetParents.push(mappedP);
+          }
+        });
         return;
       }
-      const p = cleanSources.has(parent) ? cleanTarget : parent;
-      if (child !== p) nextTagParents[child] = p;
+
+      const mappedParents = parentsList.map(p => (cleanSources.has(p) ? cleanTarget : p)).filter(p => p !== child);
+      const uniqueParents = Array.from(new Set(mappedParents));
+      if (uniqueParents.length > 0) {
+        nextTagParents[child] = uniqueParents;
+      }
     });
+
+    if (mergedTargetParents.length > 0) {
+      nextTagParents[cleanTarget] = Array.from(new Set(mergedTargetParents));
+    }
     setTagParents(nextTagParents);
 
     setExpenses(updatedExpenses);
@@ -1213,8 +1264,17 @@ export const ExpenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // Bu etikete ait tüm bağlantıları kaldır
     const nextTagParents: TagParentsMap = {};
-    Object.entries(tagParents).forEach(([child, parent]) => {
-      if (child !== cleanTarget && parent !== cleanTarget) nextTagParents[child] = parent;
+    Object.entries(tagParents).forEach(([child, parentsVal]) => {
+      if (child === cleanTarget) return;
+      const parentsList = Array.isArray(parentsVal)
+        ? parentsVal
+        : typeof parentsVal === 'string'
+        ? [parentsVal]
+        : [];
+      const filteredParents = parentsList.filter(p => p !== cleanTarget);
+      if (filteredParents.length > 0) {
+        nextTagParents[child] = filteredParents;
+      }
     });
     setTagParents(nextTagParents);
 
@@ -1222,8 +1282,86 @@ export const ExpenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
     saveToFirestoreNow(updatedExpenses, categories, accounts, limits, customTotals, nextTagParents);
   };
 
-  // Bağlı Etiket: bir etiketi üst etikete bağla / bağlantıyı kaldır
-  // Bağlandığında, alt etiketi içeren GEÇMİŞ harcamalara da üst etiket otomatik eklenir (raporlar tutarlı olsun diye).
+  // Döngüsel bağ kontrolü (child -> parent bağı döngü yaratıyor mu?)
+  const isDescendant = (candidateDescendant: string, ancestor: string, map: TagParentsMap): boolean => {
+    const normDesc = normalizeTag(candidateDescendant);
+    const normAnc = normalizeTag(ancestor);
+    if (!normDesc || !normAnc) return false;
+    if (normDesc === normAnc) return true;
+    const children = getChildTags(normAnc, map);
+    for (const child of children) {
+      if (child === normDesc || isDescendant(normDesc, child, map)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  // Bir alt etikete üst etiket ekle
+  const addTagParent = (childTag: string, parentTag: string): string | null => {
+    const child = normalizeTag(childTag);
+    const parent = normalizeTag(parentTag);
+    if (!child || !parent) return 'Geçersiz etiket.';
+    if (child === parent) return 'Bir etiket kendisine bağlanamaz.';
+
+    if (isDescendant(parent, child, tagParents)) {
+      return `"${parentTag}" zaten "${childTag}" etiketine bağlı bir alt etiket. Döngüsel bağ oluşturulamaz.`;
+    }
+
+    const currentParents = getParentTags(child, tagParents);
+    if (currentParents.includes(parent)) {
+      return null;
+    }
+
+    const nextParents = [...currentParents, parent];
+    const nextTagParents: TagParentsMap = {
+      ...tagParents,
+      [child]: nextParents,
+    };
+
+    const updatedExpenses = expenses.map(exp => {
+      const expTags = (exp.tags || []).map(normalizeTag);
+      if (!expTags.includes(child) || expTags.includes(parent)) return exp;
+      return { ...exp, tags: withParentTags(exp.tags, nextTagParents) };
+    });
+
+    setTagParents(nextTagParents);
+    setExpenses(updatedExpenses);
+    saveToFirestoreNow(updatedExpenses, categories, accounts, limits, customTotals, nextTagParents);
+    return null;
+  };
+
+  // Bir alt etiketten belirli bir üst etiketi kaldır
+  const removeTagParent = (childTag: string, parentTag: string) => {
+    const child = normalizeTag(childTag);
+    const parent = normalizeTag(parentTag);
+    if (!child || !parent) return;
+
+    const currentParents = getParentTags(child, tagParents);
+    const nextParents = currentParents.filter(p => p !== parent);
+    const nextTagParents: TagParentsMap = { ...tagParents };
+
+    if (nextParents.length === 0) {
+      delete nextTagParents[child];
+    } else {
+      nextTagParents[child] = nextParents;
+    }
+
+    setTagParents(nextTagParents);
+    saveToFirestoreNow(expenses, categories, accounts, limits, customTotals, nextTagParents);
+  };
+
+  // Bir üst etikete alt etiket ekle (eşdeğeri: alt etikete bu üst etiketi eklemek)
+  const addTagChild = (parentTag: string, childTag: string): string | null => {
+    return addTagParent(childTag, parentTag);
+  };
+
+  // Bir üst etiketten alt etiketi ayır
+  const removeTagChild = (parentTag: string, childTag: string) => {
+    removeTagParent(childTag, parentTag);
+  };
+
+  // Geriye dönük uyumluluk: setTagParent
   const setTagParent = (childTag: string, parentTag: string | null): string | null => {
     const child = normalizeTag(childTag);
     if (!child) return 'Geçersiz etiket.';
@@ -1237,27 +1375,7 @@ export const ExpenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return null;
     }
 
-    const parent = normalizeTag(parentTag);
-    if (parent === child) return 'Bir etiket kendisine bağlanamaz.';
-    if (tagParents[parent]) {
-      return `"${parent}" zaten "${tagParents[parent]}" etiketine bağlı bir alt etiket. Alt etiketler ana etiket olamaz.`;
-    }
-    if (Object.values(tagParents).includes(child)) {
-      return `"${child}" başka etiketlerin ana etiketi. Ana etiketler başka bir etikete bağlanamaz.`;
-    }
-
-    const nextTagParents = { ...tagParents, [child]: parent };
-
-    const updatedExpenses = expenses.map(exp => {
-      const expTags = (exp.tags || []).map(t => t.trim().toLowerCase());
-      if (!expTags.includes(child) || expTags.includes(parent)) return exp;
-      return { ...exp, tags: withParentTags(exp.tags, nextTagParents) };
-    });
-
-    setTagParents(nextTagParents);
-    setExpenses(updatedExpenses);
-    saveToFirestoreNow(updatedExpenses, categories, accounts, limits, customTotals, nextTagParents);
-    return null;
+    return addTagParent(childTag, parentTag);
   };
 
   // Category Operations: Merge source categories into target category
@@ -1343,6 +1461,10 @@ export const ExpenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
         mergeCategories,
         tagParents,
         setTagParent,
+        addTagParent,
+        removeTagParent,
+        addTagChild,
+        removeTagChild,
       }}
     >
       {children}

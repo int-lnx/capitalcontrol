@@ -17,17 +17,22 @@ import { LimitsView } from './components/LimitsView';
 import { ProfileView } from './components/ProfileView';
 
 import { useExpenses } from './context/ExpenseContext';
+import { APP_VERSION } from './utils/version';
 
 export function AppContent() {
   const { editingExpense, setEditingExpense } = useExpenses();
   const [activeMainTab, setActiveMainTab] = useState<MainTabType>('records');
   const [activeSubTab, setActiveSubTab] = useState<TabType>('timeline');
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
+  const currentMonthKey = new Date().toISOString().substring(0, 7);
+  const [statusPeriodFilter, setStatusPeriodFilter] = useState<string>(currentMonthKey);
 
   const isModalOpen = isAddModalOpen || Boolean(editingExpense);
 
   const handleSelectMainTab = (mainTab: MainTabType) => {
     setActiveMainTab(mainTab);
+    // Alt ana tablar arası geçişte Durum bölümü dönemini güncel döneme sıfırla
+    setStatusPeriodFilter(new Date().toISOString().substring(0, 7));
     // Switch to first sub-tab of the selected main tab
     if (mainTab === 'records') {
       setActiveSubTab('timeline');
@@ -54,11 +59,26 @@ export function AppContent() {
       
       // Status tabs
       case 'tag_query':
-        return <TagQueryView />;
+        return (
+          <TagQueryView
+            periodFilter={statusPeriodFilter}
+            onPeriodFilterChange={setStatusPeriodFilter}
+          />
+        );
       case 'categories':
-        return <CategoryManagerView />;
+        return (
+          <CategoryManagerView
+            periodFilter={statusPeriodFilter}
+            onPeriodFilterChange={setStatusPeriodFilter}
+          />
+        );
       case 'savings':
-        return <SavingsView />;
+        return (
+          <SavingsView
+            periodFilter={statusPeriodFilter}
+            onPeriodFilterChange={setStatusPeriodFilter}
+          />
+        );
       
       // Accounts tabs
       case 'accounts':
@@ -96,7 +116,7 @@ export function AppContent() {
       {/* Footer */}
       <footer className="border-t border-slate-900 bg-slate-950 py-4 text-center text-xs text-slate-500 pb-16">
         <div className="max-w-7xl mx-auto px-4">
-          <p>© {new Date().getFullYear()} Masraf Yönetimi (rev 1.4) • Akıllı Finans & Tasarruf Portalı</p>
+          <p>© {new Date().getFullYear()} Masraf Yönetimi (rev {APP_VERSION}) • Akıllı Finans & Tasarruf Portalı</p>
         </div>
       </footer>
 

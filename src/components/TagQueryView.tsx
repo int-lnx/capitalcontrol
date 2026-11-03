@@ -1,22 +1,93 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useExpenses } from '../context/ExpenseContext';
 import { formatCurrency, formatDateFormatted, getTodayString } from '../utils/formatters';
-import { Tag as TagIcon, RotateCcw, Clock, Edit2, Trash2, GitMerge, Check, X, MoreVertical, Link2, Unlink } from 'lucide-react';
+import {
+  Tag as TagIcon,
+  RotateCcw,
+  Clock,
+  Edit2,
+  Trash2,
+  GitMerge,
+  Check,
+  X,
+  Link2,
+  Plus,
+  Network,
+  FolderTree,
+  AlertCircle
+} from 'lucide-react';
 import { PieChart } from './PieChart';
 import { PeriodPickerModal } from './PeriodPickerModal';
 import { TagChips } from './TagChips';
-import { getChildTags, normalizeTag } from '../utils/tagHierarchy';
+import {
+  getChildTags,
+  getParentTags,
+  getTagTreePreviews,
+  normalizeTag
+} from '../utils/tagHierarchy';
 
-export const TagQueryView: React.FC = () => {
+const NECESSITY_BORDER_STYLES: Record<string, { border: string; bg: string; text: string; label: string }> = {
+  Fizyolojik: {
+    border: 'border-emerald-500/40 hover:border-emerald-400/70',
+    bg: 'bg-emerald-950/20',
+    text: 'text-emerald-400',
+    label: 'Fizyolojik',
+  },
+  Temel: {
+    border: 'border-blue-500/40 hover:border-blue-400/70',
+    bg: 'bg-blue-950/20',
+    text: 'text-blue-400',
+    label: 'Temel',
+  },
+  Makul: {
+    border: 'border-purple-500/40 hover:border-purple-400/70',
+    bg: 'bg-purple-950/20',
+    text: 'text-purple-300',
+    label: 'Makul',
+  },
+  Kaçınılabilir: {
+    border: 'border-amber-500/40 hover:border-amber-400/70',
+    bg: 'bg-amber-950/20',
+    text: 'text-amber-400',
+    label: 'Kaçınılabilir',
+  },
+  İsraf: {
+    border: 'border-rose-500/50 hover:border-rose-400/80',
+    bg: 'bg-rose-950/25',
+    text: 'text-rose-400',
+    label: 'İsraf',
+  },
+  Tanımsız: {
+    border: 'border-slate-800 hover:border-slate-700',
+    bg: 'bg-slate-900/60',
+    text: 'text-slate-400',
+    label: 'Tanımsız',
+  },
+};
+
+interface TagQueryViewProps {
+  periodFilter?: string;
+  onPeriodFilterChange?: (p: string) => void;
+}
+
+export const TagQueryView: React.FC<TagQueryViewProps> = ({
+  periodFilter,
+  onPeriodFilterChange,
+}) => {
   const {
     expenses,
     allTags,
     categories,
+    accounts,
+    limits,
     renameTag,
     mergeTags,
     deleteTag,
     tagParents,
-    setTagParent,
+    addTagParent,
+    removeTagParent,
+    addTagChild,
+    removeTagChild,
     setEditingExpense
   } = useExpenses();
 
@@ -24,25 +95,52 @@ export const TagQueryView: React.FC = () => {
   const currentMonthKey = new Date().toISOString().substring(0, 7);
 
   const [selectedTag, setSelectedTag] = useState<string>('');
-  const [selectedMonthFilter, setSelectedMonthFilter] = useState<string>(currentMonthKey);
+  const [localSelectedMonthFilter, setLocalSelectedMonthFilter] = useState<string>(currentMonthKey);
+  const selectedMonthFilter = periodFilter !== undefined ? periodFilter : localSelectedMonthFilter;
+  const setSelectedMonthFilter = onPeriodFilterChange || setLocalSelectedMonthFilter;
+
   const [isPeriodModalOpen, setIsPeriodModalOpen] = useState<boolean>(false);
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
 
-  // Tag Management States: Long-press action menu, rename, and merge modals
+  // Modals state
   const [activeActionTag, setActiveActionTag] = useState<string | null>(null);
   const [renameModalTag, setRenameModalTag] = useState<string | null>(null);
   const [newTagName, setNewTagName] = useState<string>('');
   const [mergeModalTag, setMergeModalTag] = useState<string | null>(null);
   const [targetMergeTag, setTargetMergeTag] = useState<string>('');
-  // Link Tag Modal state: hangi etiket hangi üst etikete bağlanacak
+
+  // Link Tag Modal state (Bağlı Etiket Belirle / Ağaç Yönetimi)
   const [linkModalTag, setLinkModalTag] = useState<string | null>(null);
-  const [targetParentTag, setTargetParentTag] = useState<string>('');
+  const [inputParentTag, setInputParentTag] = useState<string>('');
+  const [inputChildTag, setInputChildTag] = useState<string>('');
   const [linkError, setLinkError] = useState<string | null>(null);
 
-  // Long-press detection timer and flags
-  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isLongPressTriggeredRef = useRef<boolean>(false);
+  // Yazarken anlık eşleşen üst etiket önerileri (tıklanınca inputu doldurur)
+  const parentSuggestions = useMemo(() => {
+    const query = normalizeTag(inputParentTag);
+    if (!query) return [];
+    const existingParents = linkModalTag ? getParentTags(linkModalTag, tagParents) : [];
+    return allTags
+      .filter(t => {
+        const norm = normalizeTag(t);
+        return norm.includes(query) && norm !== normalizeTag(linkModalTag || '') && !existingParents.includes(norm);
+      })
+      .slice(0, 10);
+  }, [inputParentTag, allTags, linkModalTag, tagParents]);
+
+  // Yazarken anlık eşleşen alt etiket önerileri (tıklanınca inputu doldurur)
+  const childSuggestions = useMemo(() => {
+    const query = normalizeTag(inputChildTag);
+    if (!query) return [];
+    const existingChildren = linkModalTag ? getChildTags(linkModalTag, tagParents) : [];
+    return allTags
+      .filter(t => {
+        const norm = normalizeTag(t);
+        return norm.includes(query) && norm !== normalizeTag(linkModalTag || '') && !existingChildren.includes(norm);
+      })
+      .slice(0, 10);
+  }, [inputChildTag, allTags, linkModalTag, tagParents]);
 
   // Available months (Past and current only)
   const availableMonths = Array.from(
@@ -64,17 +162,16 @@ export const TagQueryView: React.FC = () => {
     return `${monthNames[parseInt(m, 10) - 1] || m} ${year}`;
   };
 
-  // BASE EXPENSES: Strict past and current expenses (No future expenses)
+  // BASE EXPENSES: Strict past and current expenses
   const baseExpenses = expenses.filter(exp => {
     const isPastOrToday = exp.date <= todayStr;
     const matchesMonth = selectedMonthFilter !== 'all' ? exp.date.startsWith(selectedMonthFilter) : true;
     return isPastOrToday && matchesMonth;
   });
 
-  // TRUE LOG TOTAL: The actual sum of unique expense records in this selected period
   const trueBaseTotalSpent = baseExpenses.reduce((sum, e) => sum + e.amount, 0);
 
-  // Filter matching expenses (for search/date filters and tag filtering)
+  // Filter matching expenses
   const filteredExpenses = baseExpenses.filter(exp => {
     let hasTag = true;
     if (selectedTag === '__untagged__') {
@@ -94,18 +191,14 @@ export const TagQueryView: React.FC = () => {
 
   const totalFilteredSpent = filteredExpenses.reduce((sum, e) => sum + e.amount, 0);
 
-  // TRUE TAG AGGREGATION:
-  // Her bir etiketin dokunduğu harcamaların gerçek tam tutarı (şişirme paylaştırma olmadan)
-  // Örneğin 1.000 TL TSS hem #saglik hem #sigorta ise her iki etiketin de dokunduğu tutar 1.000 TL'dir.
+  // Direct tag totals
   const tagDirectTotals: { [tag: string]: { total: number; count: number } } = {};
   let untaggedDirectTotal = 0;
-  let untaggedCount = 0;
 
   baseExpenses.forEach(exp => {
     const validTags = (exp.tags || []).map(t => t.toLowerCase().trim()).filter(Boolean);
     if (validTags.length === 0) {
       untaggedDirectTotal += exp.amount;
-      untaggedCount += 1;
     } else {
       validTags.forEach(t => {
         if (!tagDirectTotals[t]) tagDirectTotals[t] = { total: 0, count: 0 };
@@ -115,13 +208,11 @@ export const TagQueryView: React.FC = () => {
     }
   });
 
-  // Sort by highest spending
   const sortedTagEntries = Object.entries(tagDirectTotals)
     .sort((a, b) => b[1].total - a[1].total);
 
-  // Pie chart slice data
+  // Pie chart data: include all tags so everything is accessible in the list
   const tagChartData: { label: string; value: number; color?: string }[] = sortedTagEntries
-    .slice(0, 10)
     .map(([t, item]) => ({
       label: `#${t}`,
       value: Math.round(item.total * 100) / 100,
@@ -143,9 +234,16 @@ export const TagQueryView: React.FC = () => {
     setEndDate('');
   };
 
+  const handleOpenTagActions = (label: string) => {
+    if (label === 'Etiketsiz') return;
+    const cleaned = normalizeTag(label);
+    if (cleaned) {
+      setActiveActionTag(cleaned);
+    }
+  };
+
   return (
     <div className="space-y-5">
-      
       {/* 1. GRAFİK VE DÖNEM SEÇİCİ */}
       <div className="space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -169,7 +267,7 @@ export const TagQueryView: React.FC = () => {
           </div>
         </div>
 
-        {/* Donut Grafik (Gerçek Toplam üzerinden oranlı) */}
+        {/* Donut Grafik ve Liste (Uzun basıldığında düzenleme penceresi açılır) */}
         <PieChart
           data={tagChartData}
           customTotal={trueBaseTotalSpent > 0 ? trueBaseTotalSpent : undefined}
@@ -182,227 +280,14 @@ export const TagQueryView: React.FC = () => {
               setSelectedTag(prev => prev === cleaned ? '' : cleaned);
             }
           }}
+          onItemLongPress={handleOpenTagActions}
           title={`${formatMonthName(selectedMonthFilter)} Etiket Payı`}
         />
-
-        {/* Etiketlerin Gerçek Harcama İçindeki Yüzdeleri Kart Listesi */}
-        <div className="glass-panel p-3.5 sm:p-4 rounded-2xl border border-slate-800 space-y-2">
-          <div className="flex items-center justify-between text-xs font-bold text-slate-300">
-            <span>Etiket Bazında Gerçek Harcama & Oranlar</span>
-            <span className="text-[10px] text-slate-400">Harcama Toplamına Oranı</span>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-            {sortedTagEntries.map(([t, item]) => {
-              const percentage = trueBaseTotalSpent > 0 ? (item.total / trueBaseTotalSpent) * 100 : 0;
-              const isSelected = selectedTag.toLowerCase() === t;
-              const isActionOpen = activeActionTag === t;
-
-              const handlePointerDown = () => {
-                isLongPressTriggeredRef.current = false;
-                longPressTimerRef.current = setTimeout(() => {
-                  isLongPressTriggeredRef.current = true;
-                  setActiveActionTag(t);
-                  if (typeof navigator !== 'undefined' && navigator.vibrate) {
-                    try { navigator.vibrate(50); } catch (_) {}
-                  }
-                }, 450);
-              };
-
-              const handlePointerUpOrLeave = () => {
-                if (longPressTimerRef.current) {
-                  clearTimeout(longPressTimerRef.current);
-                  longPressTimerRef.current = null;
-                }
-              };
-
-              const handleClick = () => {
-                if (isLongPressTriggeredRef.current) {
-                  isLongPressTriggeredRef.current = false;
-                  return;
-                }
-                setSelectedTag(prev => prev === t ? '' : t);
-              };
-
-              return (
-                <div
-                  key={t}
-                  onPointerDown={handlePointerDown}
-                  onPointerUp={handlePointerUpOrLeave}
-                  onPointerCancel={handlePointerUpOrLeave}
-                  onPointerLeave={handlePointerUpOrLeave}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    setActiveActionTag(t);
-                  }}
-                  onClick={handleClick}
-                  className={`p-2.5 rounded-xl border text-left transition-all relative select-none cursor-pointer group ${
-                    isSelected
-                      ? 'bg-teal-500/15 border-teal-500 ring-1 ring-teal-500/50'
-                      : 'bg-slate-800/60 border-slate-700/60 hover:bg-slate-800 hover:border-slate-600'
-                  }`}
-                  title="Filtrelemek için tıkla, düzenlemek/birleştirmek için basılı tut"
-                >
-                  <div className="flex items-center justify-between text-xs mb-1">
-                    <div className="flex items-center space-x-1 min-w-0">
-                      <span className="font-bold text-teal-300 truncate">#{t}</span>
-                      {tagParents[t] && (
-                        <span className="text-[9px] px-1 py-0.2 rounded bg-violet-500/20 text-violet-300 border border-violet-500/30 shrink-0 font-medium" title={`Bağlı olduğu üst etiket: #${tagParents[t]}`}>
-                          ↳ {tagParents[t]}
-                        </span>
-                      )}
-                      {getChildTags(t, tagParents).length > 0 && (
-                        <span className="text-[9px] px-1 py-0.2 rounded bg-teal-500/20 text-teal-300 border border-teal-500/30 shrink-0 font-medium" title={`Alt etiketler: ${getChildTags(t, tagParents).join(', ')}`}>
-                          +{getChildTags(t, tagParents).length} alt
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center space-x-1">
-                      <span className="font-extrabold text-emerald-400">{formatCurrency(item.total)}</span>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setActiveActionTag(activeActionTag === t ? null : t);
-                        }}
-                        className="opacity-40 group-hover:opacity-100 hover:text-white p-0.5 rounded transition-opacity"
-                        title="İşlemler (Düzenle / Birleştir / Sil)"
-                      >
-                        <MoreVertical className="w-3.5 h-3.5 text-slate-400" />
-                      </button>
-                    </div>
-                  </div>
-                  
-                  {/* Progress bar showing % of total expenses */}
-                  <div className="w-full bg-slate-900/80 rounded-full h-1.5 overflow-hidden flex mb-1">
-                    <div
-                      className="bg-gradient-to-r from-teal-500 to-emerald-400 h-full rounded-full transition-all duration-300"
-                      style={{ width: `${Math.min(percentage, 100)}%` }}
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between text-[10px] text-slate-400">
-                    <span>{item.count} işlem</span>
-                    <span className="font-bold text-slate-200">
-                      Toplamın %{percentage.toFixed(1)}'i
-                    </span>
-                  </div>
-
-                  {/* Basılı Tutulunca / Tıklanınca Açılan Hızlı İşlem Menüsü */}
-                  {isActionOpen && (
-                    <div
-                      onClick={(e) => e.stopPropagation()}
-                      className="mt-2 pt-2 border-t border-slate-700/80 flex items-center justify-between gap-1 animate-in fade-in zoom-in-95 duration-150"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setRenameModalTag(t);
-                          setNewTagName(t);
-                          setActiveActionTag(null);
-                        }}
-                        className="flex-1 py-1 px-1.5 bg-slate-700/80 hover:bg-slate-700 rounded-lg text-[10px] font-semibold text-slate-200 flex items-center justify-center space-x-1"
-                        title="Etiket Adını Düzenle"
-                      >
-                        <Edit2 className="w-3 h-3 text-teal-400" />
-                        <span>Düzenle</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setLinkModalTag(t);
-                          setTargetParentTag(tagParents[t] || '');
-                          setLinkError(null);
-                          setActiveActionTag(null);
-                        }}
-                        className="flex-1 py-1 px-1.5 bg-violet-900/50 hover:bg-violet-900/70 border border-violet-500/30 rounded-lg text-[10px] font-semibold text-violet-200 flex items-center justify-center space-x-1"
-                        title="Üst Etikete Bağla / Bağlantıyı Değiştir"
-                      >
-                        <Link2 className="w-3 h-3 text-violet-400" />
-                        <span>{tagParents[t] ? 'Bağlantı' : 'Bağla'}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setMergeModalTag(t);
-                          setTargetMergeTag('');
-                          setActiveActionTag(null);
-                        }}
-                        className="flex-1 py-1 px-1.5 bg-indigo-900/50 hover:bg-indigo-900/70 border border-indigo-500/30 rounded-lg text-[10px] font-semibold text-indigo-200 flex items-center justify-center space-x-1"
-                        title="Başka Bir Etiketle Birleştir"
-                      >
-                        <GitMerge className="w-3 h-3 text-indigo-400" />
-                        <span>Birleştir</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (confirm(`"#${t}" etiketini tüm harcamalardan kaldırmak istediğinize emin misiniz?`)) {
-                            deleteTag(t);
-                            setActiveActionTag(null);
-                          }
-                        }}
-                        className="py-1 px-2 bg-rose-950/40 hover:bg-rose-900/60 border border-rose-500/30 rounded-lg text-[10px] font-semibold text-rose-300 flex items-center justify-center"
-                        title="Etiketi Sil"
-                      >
-                        <Trash2 className="w-3 h-3 text-rose-400" />
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setActiveActionTag(null)}
-                        className="p-1 text-slate-400 hover:text-white"
-                        title="Kapat"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-
-            {untaggedDirectTotal > 0 && (
-              <button
-                type="button"
-                onClick={() => setSelectedTag(prev => prev === '__untagged__' ? '' : '__untagged__')}
-                className={`p-2.5 rounded-xl border text-left transition-all ${
-                  selectedTag === '__untagged__'
-                    ? 'bg-slate-700/40 border-slate-400 ring-1 ring-slate-400/50'
-                    : 'bg-slate-800/60 border-slate-700/60 hover:bg-slate-800 hover:border-slate-600'
-                }`}
-              >
-                <div className="flex items-center justify-between text-xs mb-1">
-                  <span className="font-bold text-slate-300">Etiketsiz</span>
-                  <span className="font-extrabold text-slate-300">{formatCurrency(untaggedDirectTotal)}</span>
-                </div>
-                
-                <div className="w-full bg-slate-900/80 rounded-full h-1.5 overflow-hidden flex mb-1">
-                  <div
-                    className="bg-slate-500 h-full rounded-full transition-all duration-300"
-                    style={{ width: `${Math.min(trueBaseTotalSpent > 0 ? (untaggedDirectTotal / trueBaseTotalSpent) * 100 : 0, 100)}%` }}
-                  />
-                </div>
-
-                <div className="flex items-center justify-between text-[10px] text-slate-400">
-                  <span>{untaggedCount} işlem</span>
-                  <span className="font-bold text-slate-200">
-                    Toplamın %{((untaggedDirectTotal / trueBaseTotalSpent) * 100).toFixed(1)}'i
-                  </span>
-                </div>
-              </button>
-            )}
-          </div>
-        </div>
       </div>
 
       {/* 2. 1-ROW COMPACT FILTER BAR */}
       <div className="glass-panel p-3.5 rounded-2xl border border-slate-800">
         <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-2.5">
-          
           {/* Tag Selector */}
           <div className="flex items-center space-x-2 flex-1 min-w-[200px]">
             <TagIcon className="w-4 h-4 text-teal-400 shrink-0" />
@@ -455,7 +340,6 @@ export const TagQueryView: React.FC = () => {
             <span className="text-xs text-slate-400">{filteredExpenses.length} Kayıt</span>
             <span className="text-sm font-extrabold text-teal-400">{formatCurrency(totalFilteredSpent)}</span>
           </div>
-
         </div>
       </div>
 
@@ -471,33 +355,109 @@ export const TagQueryView: React.FC = () => {
           <div className="space-y-2">
             {filteredExpenses.map(exp => {
               const category = categories.find(c => c.id === exp.categoryId);
+              const subcategory = category?.subcategories.find(s => s.id === exp.subcategoryId);
+              const account = accounts.find(a => a.id === exp.accountId);
+              const limit = limits.find(l => l.id === exp.limitId);
+              const rawLvl = (exp.necessity || 'Tanımsız') as string;
+              const styleInfo = NECESSITY_BORDER_STYLES[rawLvl] || NECESSITY_BORDER_STYLES['Tanımsız'];
+
               return (
                 <div
                   key={exp.id}
                   onClick={() => setEditingExpense(exp)}
-                  className="p-3 rounded-xl bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 hover:border-teal-500/50 transition-all flex items-center justify-between gap-3 text-xs cursor-pointer group"
-                  title="Düzenlemek veya silmek için tıklayın"
+                  className={`p-2.5 sm:p-3 rounded-2xl border transition-all ${styleInfo.border} ${styleInfo.bg} hover:border-teal-500/60 hover:shadow-lg hover:shadow-teal-950/20 active:scale-[0.99] cursor-pointer backdrop-blur-sm flex flex-col gap-2`}
+                  title="Harcamayı düzenlemek için tıklayın"
                 >
-                  <div className="flex items-center space-x-2.5 min-w-0">
-                    <span
-                      className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: category?.color || '#3b82f6' }}
-                    />
-                    <div className="min-w-0">
-                      <h4 className="font-semibold text-slate-100 truncate">{exp.title || 'Harcama'}</h4>
-                      <div className="flex items-center space-x-2 text-[10px] text-slate-400 mt-0.5">
-                        <span>{formatDateFormatted(exp.date)}</span>
-                        <span>• {category?.name || 'Genel'}</span>
-                        <div className="flex gap-1 overflow-x-auto no-scrollbar">
-                          <TagChips tags={exp.tags || []} size="xs" />
+                  {/* Top Row: Category (Left), Middle Info, Amount & Payment Type (Right) */}
+                  <div className="flex items-start justify-between gap-2">
+                    {/* 1. LEFT: Category Pill + Necessity badge */}
+                    <div className="flex flex-col items-start gap-1 flex-shrink-0 w-20 sm:w-24">
+                      {category ? (
+                        <div
+                          className="px-2 py-0.5 rounded-lg text-slate-950 font-bold text-[10px] sm:text-[11px] max-w-full truncate shadow-sm"
+                          style={{ backgroundColor: category.color || '#3b82f6' }}
+                          title={`${category.name}${subcategory ? ` / ${subcategory.name}` : ''}`}
+                        >
+                          {category.name}
                         </div>
+                      ) : (
+                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-lg bg-slate-800 text-slate-400 border border-slate-700">
+                          Kategori Dışı
+                        </span>
+                      )}
+                      <span className={`text-[9px] font-semibold px-1.5 py-0.2 rounded border bg-slate-900/60 ${styleInfo.text} border-current/30 truncate max-w-full`}>
+                        {styleInfo.label}
+                      </span>
+                    </div>
+
+                    {/* 2. MIDDLE: Title, Description, Account, Limit, Date */}
+                    <div className="flex-1 min-w-0 space-y-0.5 px-1">
+                      <div className="flex items-center space-x-1.5 flex-wrap">
+                        <h4 className="font-semibold text-slate-100 text-xs sm:text-sm truncate">
+                          {exp.title || 'Başlıksız Harcama'}
+                        </h4>
+                        {exp.splitBatchId && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                            {exp.splitTitle || 'Ayrım'}
+                          </span>
+                        )}
+                        {subcategory && (
+                          <span className="text-[9px] text-slate-400 font-medium hidden sm:inline">
+                            ({subcategory.name})
+                          </span>
+                        )}
+                        {account && (
+                          <span className="text-[9px] font-medium px-1.5 py-0.2 rounded bg-blue-500/10 text-blue-300 border border-blue-500/20">
+                            {account.name}
+                          </span>
+                        )}
+                        {limit && (
+                          <span className="text-[9px] font-medium px-1.5 py-0.2 rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
+                            {limit.name}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center space-x-2 text-[10px] text-slate-400">
+                        <span>{formatDateFormatted(exp.date)}</span>
+                      </div>
+
+                      {exp.description && (
+                        <p className="text-[11px] text-slate-400 line-clamp-1">
+                          {exp.description}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* 3. RIGHT: Amount & Underneath Payment Details */}
+                    <div className="flex flex-col items-end flex-shrink-0 text-right">
+                      <span className="text-xs sm:text-base font-extrabold text-emerald-400">
+                        {formatCurrency(exp.amount)}
+                      </span>
+                      <div className="mt-0.5 flex flex-col items-end">
+                        {exp.paymentType === 'taksitli' ? (
+                          <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                            {exp.installmentNumber ? `${exp.installmentNumber}. / ${exp.installmentCount} Taksit` : `${exp.installmentCount} Taksit`}
+                          </span>
+                        ) : exp.paymentType === 'tekrarlayan' ? (
+                          <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
+                            {exp.isUnlimitedRecurrence ? 'Sürekli Tekrar' : `${exp.installmentNumber || 1}. Tekrar`}
+                          </span>
+                        ) : (
+                          <span className="text-[9px] font-medium text-teal-400 opacity-90">
+                            Peşin
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
 
-                  <span className="font-extrabold text-emerald-400 shrink-0 text-sm">
-                    {formatCurrency(exp.amount)}
-                  </span>
+                  {/* Bottom Row: Tags extending full width with plenty of space! */}
+                  {exp.tags && exp.tags.length > 0 && (
+                    <div className="w-full flex items-center flex-wrap gap-1.5 pt-1.5 border-t border-slate-800/40">
+                      <TagChips tags={exp.tags} size="xs" />
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -505,7 +465,534 @@ export const TagQueryView: React.FC = () => {
         )}
       </div>
 
-      {/* MODAL: ETIKET ADI DÜZENLEME */}
+      {/* ============================================================ */}
+      {/* MODAL 1: ETIKET İŞLEM VE AĞ YAPISI PENCERESI (LONG-PRESS)    */}
+      {/* ============================================================ */}
+      {activeActionTag && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="glass-panel w-full max-w-md p-5 rounded-2xl border border-slate-700 space-y-4 shadow-2xl animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
+            
+            {/* Başlık ve Kapat Butonu */}
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+              <div className="flex items-center space-x-2">
+                <span className="p-1.5 rounded-lg bg-teal-500/20 text-teal-400 border border-teal-500/30">
+                  <TagIcon className="w-4 h-4" />
+                </span>
+                <div>
+                  <h4 className="text-sm font-bold text-white">#{activeActionTag}</h4>
+                  <p className="text-[10px] text-slate-400">
+                    {tagDirectTotals[activeActionTag]
+                      ? `${formatCurrency(tagDirectTotals[activeActionTag].total)} • ${tagDirectTotals[activeActionTag].count} işlem`
+                      : 'Bu dönem harcama yok'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveActionTag(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* TÜM AĞ YAPISI (Hangi etiketlere nasıl bağlı) */}
+            <div className="space-y-2">
+              <div className="flex items-center space-x-1.5 text-xs font-semibold text-slate-300">
+                <Network className="w-3.5 h-3.5 text-teal-400" />
+                <span>Etiket Ağ Yapısı & Bağlantıları</span>
+              </div>
+
+              {(() => {
+                const treePreviews = getTagTreePreviews(activeActionTag, tagParents);
+                const childTags = getChildTags(activeActionTag, tagParents);
+                const hasParents = treePreviews.length > 0;
+                const hasChildren = childTags.length > 0;
+
+                if (!hasParents && !hasChildren) {
+                  return (
+                    <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 text-xs text-slate-400 flex items-center space-x-2">
+                      <span className="w-2 h-2 rounded-full bg-slate-500 shrink-0" />
+                      <span>Bağımsız Etiket (Herhangi bir üst veya alt etiket bağlantısı bulunmuyor).</span>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-2.5">
+                    {/* Üst grup ağaçları */}
+                    {treePreviews.map((grp) => (
+                      <div
+                        key={grp.parent}
+                        className="p-3 rounded-xl bg-slate-900/80 border border-violet-500/30 space-y-1.5"
+                      >
+                        <div className="flex items-center space-x-1.5 text-xs font-bold text-violet-300">
+                          <FolderTree className="w-3.5 h-3.5 text-violet-400" />
+                          <span>#{grp.parent} (Üst Etiket)</span>
+                        </div>
+                        <div className="ml-3 pl-2.5 border-l-2 border-violet-500/30 space-y-1 text-xs">
+                          {grp.children.map(child => {
+                            const isCurrent = child === activeActionTag;
+                            return (
+                              <div
+                                key={child}
+                                className={`flex items-center space-x-1.5 py-0.5 ${
+                                  isCurrent ? 'font-bold text-teal-300' : 'text-slate-300'
+                                }`}
+                              >
+                                <span className="text-slate-500 font-mono text-[10px]">•</span>
+                                <span>#{child}</span>
+                                {isCurrent && (
+                                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-teal-500/20 text-teal-300 border border-teal-500/30">
+                                    Mevcut *
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* Bu etiketin kendi alt etiketleri varsa */}
+                    {hasChildren && (
+                      <div className="p-3 rounded-xl bg-slate-900/80 border border-teal-500/30 space-y-1.5">
+                        <div className="flex items-center space-x-1.5 text-xs font-bold text-teal-300">
+                          <FolderTree className="w-3.5 h-3.5 text-teal-400" />
+                          <span>#{activeActionTag} * (Mevcut Etiketin Altındakiler)</span>
+                        </div>
+                        <div className="ml-3 pl-2.5 border-l-2 border-teal-500/30 space-y-1 text-xs">
+                          {childTags.map(child => (
+                            <div key={child} className="flex items-center space-x-1.5 text-slate-300 py-0.5">
+                              <span className="text-slate-500 font-mono text-[10px]">•</span>
+                              <span>#{child}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* SEÇENEKLER: DÜZENLE, BAĞLA, BİRLEŞTİR, SİL */}
+            <div className="space-y-1.5 pt-2 border-t border-slate-800">
+              <span className="text-[11px] font-semibold text-slate-400">İşlemler:</span>
+              <div className="grid grid-cols-2 gap-2">
+                {/* 1. Düzenle */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRenameModalTag(activeActionTag);
+                    setNewTagName(activeActionTag);
+                    setActiveActionTag(null);
+                  }}
+                  className="p-2.5 bg-slate-800 hover:bg-slate-700/80 border border-slate-700/70 rounded-xl text-xs font-semibold text-slate-200 flex items-center justify-center space-x-2 transition-all"
+                  title="Etiket Adını Değiştir"
+                >
+                  <Edit2 className="w-3.5 h-3.5 text-teal-400" />
+                  <span>Düzenle</span>
+                </button>
+
+                {/* 2. Bağla */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLinkModalTag(activeActionTag);
+                    setInputParentTag('');
+                    setInputChildTag('');
+                    setLinkError(null);
+                    setActiveActionTag(null);
+                  }}
+                  className="p-2.5 bg-violet-950/40 hover:bg-violet-900/50 border border-violet-500/30 rounded-xl text-xs font-semibold text-violet-200 flex items-center justify-center space-x-2 transition-all"
+                  title="Üst ve Alt Etiketleri Belirle / Yönet"
+                >
+                  <Link2 className="w-3.5 h-3.5 text-violet-400" />
+                  <span>Bağla</span>
+                </button>
+
+                {/* 3. Birleştir */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMergeModalTag(activeActionTag);
+                    setTargetMergeTag('');
+                    setActiveActionTag(null);
+                  }}
+                  className="p-2.5 bg-indigo-950/40 hover:bg-indigo-900/50 border border-indigo-500/30 rounded-xl text-xs font-semibold text-indigo-200 flex items-center justify-center space-x-2 transition-all"
+                  title="Başka Bir Etiketle Birleştir"
+                >
+                  <GitMerge className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Birleştir</span>
+                </button>
+
+                {/* 4. Sil */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (confirm(`"#${activeActionTag}" etiketini tüm harcamalardan ve bağlantılardan kaldırmak istediğinize emin misiniz?`)) {
+                      deleteTag(activeActionTag);
+                      if (selectedTag.toLowerCase() === activeActionTag.toLowerCase()) {
+                        setSelectedTag('');
+                      }
+                      setActiveActionTag(null);
+                    }
+                  }}
+                  className="p-2.5 bg-rose-950/40 hover:bg-rose-900/50 border border-rose-500/30 rounded-xl text-xs font-semibold text-rose-300 flex items-center justify-center space-x-2 transition-all"
+                  title="Etiketi Tamamen Sil"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                  <span>Sil</span>
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* MODAL 2: BAĞLI ETIKET BELİRLE & AĞAÇ ÖNİZLEMESİ             */}
+      {/* ============================================================ */}
+      {linkModalTag && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="glass-panel w-full max-w-lg p-5 rounded-2xl border border-slate-700 space-y-4 shadow-2xl animate-in fade-in zoom-in-95 duration-150 max-h-[92vh] overflow-y-auto">
+            
+            {/* Başlık */}
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+              <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
+                <Link2 className="w-4 h-4 text-violet-400" />
+                <span>Bağlı Etiket Belirle: #{linkModalTag}</span>
+              </h4>
+              <button
+                type="button"
+                onClick={() => setLinkModalTag(null)}
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* HATA MESAJI (Varsa) */}
+            {linkError && (
+              <div className="p-2.5 rounded-xl bg-rose-950/50 border border-rose-500/40 flex items-center space-x-2 text-xs text-rose-300">
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                <span>{linkError}</span>
+              </div>
+            )}
+
+            {/* ÖNİZLEME: ETİKETİN BULUNDUĞU ETİKET GRUPLARI / AĞAÇLAR */}
+            <div className="space-y-2">
+              <label className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5">
+                <FolderTree className="w-3.5 h-3.5 text-teal-400" />
+                <span>Etiket Grubu Ağaç Önizlemesi</span>
+              </label>
+
+              {(() => {
+                const previews = getTagTreePreviews(linkModalTag, tagParents);
+                const children = getChildTags(linkModalTag, tagParents);
+                const hasParents = previews.length > 0;
+                const hasChildren = children.length > 0;
+
+                if (!hasParents && !hasChildren) {
+                  return (
+                    <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 text-xs text-slate-400">
+                      Bu etikete henüz bir üst veya alt etiket bağlanmamış. Aşağıdaki alanlardan dilediğiniz üst veya alt etiketleri ekleyebilirsiniz.
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-3">
+                    {/* Üst grup ağaçları (Örn: Faturalar -> Elektrik*, Su, internet | Ev -> Elektrik*, kira, mutfak) */}
+                    {previews.map(grp => (
+                      <div
+                        key={grp.parent}
+                        className="p-3 rounded-xl bg-slate-900/80 border border-violet-500/30 space-y-1.5"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-violet-300">
+                            {grp.parent}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              removeTagParent(linkModalTag, grp.parent);
+                              setLinkError(null);
+                            }}
+                            className="text-[10px] text-rose-400 hover:text-rose-300 hover:underline"
+                            title="Bu üst etiket bağını kaldır"
+                          >
+                            Bağı Kaldır
+                          </button>
+                        </div>
+                        <div className="ml-2 pl-2 border-l-2 border-violet-500/30 space-y-0.5 text-xs">
+                          {grp.children.map(child => {
+                            const isCurrent = child === linkModalTag;
+                            return (
+                              <div
+                                key={child}
+                                className={`flex items-center space-x-1.5 py-0.5 ${
+                                  isCurrent ? 'font-bold text-teal-300' : 'text-slate-400'
+                                }`}
+                              >
+                                <span>- {child}</span>
+                                {isCurrent && (
+                                  <span className="text-[10px] px-1 py-0.2 rounded bg-teal-500/20 text-teal-300 border border-teal-500/30">
+                                    *
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* Kendi alt etiketleri ağacı (Örn: Elektrik* -> trafo, jeneratör vb.) */}
+                    {hasChildren && (
+                      <div className="p-3 rounded-xl bg-slate-900/80 border border-teal-500/30 space-y-1.5">
+                        <div className="text-xs font-bold text-teal-300">
+                          {linkModalTag} * (Mevcut Etiket)
+                        </div>
+                        <div className="ml-2 pl-2 border-l-2 border-teal-500/30 space-y-0.5 text-xs">
+                          {children.map(child => (
+                            <div key={child} className="flex items-center justify-between text-slate-300 py-0.5">
+                              <span>- {child}</span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  removeTagChild(linkModalTag, child);
+                                  setLinkError(null);
+                                }}
+                                className="text-[10px] text-rose-400 hover:text-rose-300"
+                                title="Alt etiketi ayır"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* YÖNETİM BÖLÜMÜ: ÜST ETİKETLER */}
+            <div className="p-3.5 rounded-xl bg-slate-900/70 border border-slate-800 space-y-2">
+              <label className="text-xs font-semibold text-violet-300">
+                1. Üst (Ana) Etiket Ekle
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={inputParentTag}
+                  onChange={e => {
+                    setInputParentTag(e.target.value);
+                    setLinkError(null);
+                  }}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      if (!inputParentTag.trim()) return;
+                      const err = addTagParent(linkModalTag, inputParentTag.trim());
+                      if (err) {
+                        setLinkError(err);
+                      } else {
+                        setInputParentTag('');
+                        setLinkError(null);
+                      }
+                    }
+                  }}
+                  placeholder="Örn: Faturalar, Ev... (Yazarken önerir)"
+                  className="flex-1 px-3 py-1.5 bg-slate-800 border border-slate-700 focus:border-violet-400 rounded-xl text-xs text-white outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!inputParentTag.trim()) return;
+                    const err = addTagParent(linkModalTag, inputParentTag.trim());
+                    if (err) {
+                      setLinkError(err);
+                    } else {
+                      setInputParentTag('');
+                      setLinkError(null);
+                    }
+                  }}
+                  disabled={!inputParentTag.trim()}
+                  className="px-3 py-1.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white font-semibold text-xs rounded-xl transition-all flex items-center space-x-1"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Ekle</span>
+                </button>
+              </div>
+
+              {/* Yazarken anlık öneriler (Tıklanınca kutuyu doldurur) */}
+              {parentSuggestions.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5 pt-0.5 animate-in fade-in duration-100">
+                  <span className="text-[10px] text-slate-400 font-medium">Önerilenler:</span>
+                  {parentSuggestions.map(s => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setInputParentTag(s)}
+                      className="px-2 py-0.5 rounded-lg bg-violet-500/20 hover:bg-violet-500/40 text-violet-200 border border-violet-500/30 text-xs font-medium transition-colors"
+                      title={`"${s}" ile doldur`}
+                    >
+                      #{s}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Mevcut bağlı üst etiketler listesi */}
+              {(() => {
+                const parents = getParentTags(linkModalTag, tagParents);
+                if (parents.length === 0) return null;
+                return (
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {parents.map(p => (
+                      <span
+                        key={p}
+                        className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-lg bg-violet-500/20 text-violet-300 border border-violet-500/30 text-xs"
+                      >
+                        <span>#{p}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            removeTagParent(linkModalTag, p);
+                            setLinkError(null);
+                          }}
+                          className="hover:text-rose-400 p-0.5 rounded"
+                          title="Üst etiket bağını kaldır"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* YÖNETİM BÖLÜMÜ: ALT ETİKETLER */}
+            <div className="p-3.5 rounded-xl bg-slate-900/70 border border-slate-800 space-y-2">
+              <label className="text-xs font-semibold text-teal-300">
+                2. Alt Etiket Ekle
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={inputChildTag}
+                  onChange={e => {
+                    setInputChildTag(e.target.value);
+                    setLinkError(null);
+                  }}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      if (!inputChildTag.trim()) return;
+                      const err = addTagChild(linkModalTag, inputChildTag.trim());
+                      if (err) {
+                        setLinkError(err);
+                      } else {
+                        setInputChildTag('');
+                        setLinkError(null);
+                      }
+                    }
+                  }}
+                  placeholder="Örn: Su, İnternet... (Yazarken önerir)"
+                  className="flex-1 px-3 py-1.5 bg-slate-800 border border-slate-700 focus:border-teal-400 rounded-xl text-xs text-white outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!inputChildTag.trim()) return;
+                    const err = addTagChild(linkModalTag, inputChildTag.trim());
+                    if (err) {
+                      setLinkError(err);
+                    } else {
+                      setInputChildTag('');
+                      setLinkError(null);
+                    }
+                  }}
+                  disabled={!inputChildTag.trim()}
+                  className="px-3 py-1.5 bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-slate-950 font-bold text-xs rounded-xl transition-all flex items-center space-x-1"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Ekle</span>
+                </button>
+              </div>
+
+              {/* Yazarken anlık öneriler (Tıklanınca kutuyu doldurur) */}
+              {childSuggestions.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5 pt-0.5 animate-in fade-in duration-100">
+                  <span className="text-[10px] text-slate-400 font-medium">Önerilenler:</span>
+                  {childSuggestions.map(s => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setInputChildTag(s)}
+                      className="px-2 py-0.5 rounded-lg bg-teal-500/20 hover:bg-teal-500/40 text-teal-200 border border-teal-500/30 text-xs font-medium transition-colors"
+                      title={`"${s}" ile doldur`}
+                    >
+                      #{s}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Mevcut bağlı alt etiketler listesi */}
+              {(() => {
+                const childs = getChildTags(linkModalTag, tagParents);
+                if (childs.length === 0) return null;
+                return (
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {childs.map(c => (
+                      <span
+                        key={c}
+                        className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-lg bg-teal-500/20 text-teal-300 border border-teal-500/30 text-xs"
+                      >
+                        <span>#{c}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            removeTagChild(linkModalTag, c);
+                            setLinkError(null);
+                          }}
+                          className="hover:text-rose-400 p-0.5 rounded"
+                          title="Alt etiket bağını kaldır"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Kapat / Tamam Butonu */}
+            <div className="flex items-center justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setLinkModalTag(null)}
+                className="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs rounded-xl transition-colors"
+              >
+                Kapat
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* MODAL 3: ETIKET ADI DÜZENLEME                                */}
+      {/* ============================================================ */}
       {renameModalTag && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="glass-panel w-full max-w-sm p-5 rounded-2xl border border-slate-700 space-y-4 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
@@ -555,7 +1042,7 @@ export const TagQueryView: React.FC = () => {
                   if (newTagName.trim()) {
                     renameTag(renameModalTag, newTagName.trim());
                     if (selectedTag.toLowerCase() === renameModalTag.toLowerCase()) {
-                      setSelectedTag(newTagName.trim().toLowerCase().replace(/^#/, ''));
+                      setSelectedTag(normalizeTag(newTagName));
                     }
                     setRenameModalTag(null);
                   }
@@ -571,7 +1058,9 @@ export const TagQueryView: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL: ETIKETLERI BIRLEŞTIRME */}
+      {/* ============================================================ */}
+      {/* MODAL 4: ETIKETLERI BIRLEŞTIRME                              */}
+      {/* ============================================================ */}
       {mergeModalTag && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="glass-panel w-full max-w-sm p-5 rounded-2xl border border-slate-700 space-y-4 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
@@ -646,106 +1135,6 @@ export const TagQueryView: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL: BAĞLI ETIKET (ÜST ETIKETE BAĞLAMA) */}
-      {linkModalTag && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="glass-panel w-full max-w-sm p-5 rounded-2xl border border-slate-700 space-y-4 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-              <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
-                <Link2 className="w-4 h-4 text-violet-400" />
-                <span>Bağlı Etiket Belirle</span>
-              </h4>
-              <button
-                type="button"
-                onClick={() => setLinkModalTag(null)}
-                className="text-slate-400 hover:text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-3">
-              <div className="p-2.5 rounded-xl bg-slate-800/80 border border-slate-700/60 text-xs text-slate-300">
-                Alt Etiket: <span className="font-bold text-teal-300">#{linkModalTag}</span>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[11px] text-slate-400">Üst (Ana) Etiket:</label>
-                <input
-                  type="text"
-                  value={targetParentTag}
-                  onChange={(e) => {
-                    setTargetParentTag(e.target.value);
-                    setLinkError(null);
-                  }}
-                  placeholder="Örn: Sağlık, Sağlıksız..."
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 focus:border-violet-400 rounded-xl text-xs text-white outline-none"
-                  list="known-parent-candidates"
-                />
-                <datalist id="known-parent-candidates">
-                  {allTags
-                    .filter(t => t.toLowerCase() !== linkModalTag.toLowerCase())
-                    .map(t => (
-                      <option key={t} value={t} />
-                    ))}
-                </datalist>
-
-                {linkError && (
-                  <p className="text-[11px] text-rose-400 pt-0.5">{linkError}</p>
-                )}
-
-                <p className="text-[10px] text-slate-400 pt-1 leading-relaxed">
-                  💡 <strong>Nasıl Çalışır?</strong> Örneğin <em>{linkModalTag}</em> etiketini <em>Sağlıksız</em> ana etiketine bağlarsanız; harcama girerken #{linkModalTag} seçildiği anda otomatik olarak #{targetParentTag || 'Sağlıksız'} da eklenecek ve kartlarda <em>"{targetParentTag || 'Sağlıksız'}: {linkModalTag}"</em> olarak gruplanacaktır.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between gap-2 pt-2">
-              {tagParents[linkModalTag] ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTagParent(linkModalTag, null);
-                    setLinkModalTag(null);
-                  }}
-                  className="px-2.5 py-1.5 bg-rose-950/40 hover:bg-rose-900/60 border border-rose-500/30 text-rose-300 text-xs rounded-xl flex items-center gap-1 transition-colors"
-                  title="Bağlantıyı Kaldır"
-                >
-                  <Unlink className="w-3.5 h-3.5" />
-                  <span>Bağı Kopar</span>
-                </button>
-              ) : <div />}
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setLinkModalTag(null)}
-                  className="px-3 py-1.5 rounded-xl text-xs text-slate-300 hover:bg-slate-800 transition-colors"
-                >
-                  İptal
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const err = setTagParent(linkModalTag, targetParentTag.trim() || null);
-                    if (err) {
-                      setLinkError(err);
-                    } else {
-                      setLinkModalTag(null);
-                    }
-                  }}
-                  disabled={!targetParentTag.trim()}
-                  className="px-4 py-1.5 bg-gradient-to-r from-violet-500 to-indigo-600 hover:from-violet-400 hover:to-indigo-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-1"
-                >
-                  <Check className="w-3.5 h-3.5" />
-                  <span>Kaydet</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Period Picker Modal */}
       <PeriodPickerModal
         isOpen={isPeriodModalOpen}
@@ -755,7 +1144,6 @@ export const TagQueryView: React.FC = () => {
         themeColor="teal"
         availableMonths={availableMonths}
       />
-
     </div>
   );
 };

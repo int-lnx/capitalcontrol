@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { useExpenses } from '../context/ExpenseContext';
 import { useAuth } from '../context/AuthContext';
+import { APP_VERSION } from '../utils/version';
 
 interface HeaderProps {
   activeMainTab: MainTabType;
@@ -109,7 +110,7 @@ export const Header: React.FC<HeaderProps> = ({
               <h1 className="text-sm sm:text-base font-bold bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent truncate leading-tight flex items-center gap-1.5">
                 <span>Masraf Yönetimi</span>
                 <span className="text-[10px] font-mono font-semibold px-1.5 py-0.2 rounded bg-teal-500/15 text-teal-300 border border-teal-500/30 tracking-tight shrink-0">
-                  rev 1.4
+                  rev {APP_VERSION}
                 </span>
               </h1>
               <div className="flex items-center gap-1 text-[10px] text-slate-400 leading-none">

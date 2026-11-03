@@ -17,13 +17,23 @@ const NECESSITY_METAS: Record<NecessityLevel, { label: string; desc: string; col
 
 const ALL_LEVELS: NecessityLevel[] = ['Fizyolojik', 'Temel', 'Makul', 'Kaçınılabilir', 'İsraf', 'Tanımsız'];
 
-export const SavingsView: React.FC = () => {
+interface SavingsViewProps {
+  periodFilter?: string;
+  onPeriodFilterChange?: (p: string) => void;
+}
+
+export const SavingsView: React.FC<SavingsViewProps> = ({
+  periodFilter,
+  onPeriodFilterChange,
+}) => {
   const { expenses, categories, accounts, setEditingExpense } = useExpenses();
   const todayStr = getTodayString();
   const currentMonthKey = new Date().toISOString().substring(0, 7);
 
   const [selectedLevel, setSelectedLevel] = useState<NecessityLevel | 'ALL'>('ALL');
-  const [selectedMonthFilter, setSelectedMonthFilter] = useState<string>(currentMonthKey);
+  const [localMonthFilter, setLocalMonthFilter] = useState<string>(currentMonthKey);
+  const selectedMonthFilter = periodFilter !== undefined ? periodFilter : localMonthFilter;
+  const setSelectedMonthFilter = onPeriodFilterChange || setLocalMonthFilter;
   const [isPeriodModalOpen, setIsPeriodModalOpen] = useState<boolean>(false);
 
   // Available months (Past and current only)

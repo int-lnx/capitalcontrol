@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
+import { MoreVertical } from 'lucide-react';
 
 export interface PieSubItem {
   id?: string;
@@ -28,6 +29,7 @@ interface PieChartProps {
   data: PieChartItem[];
   title?: string;
   onSliceClick?: (label: string, id?: string) => void;
+  onItemLongPress?: (label: string, id?: string) => void;
   selectedLabel?: string;
   customTotal?: number; // Optional override for the true base total
 }
@@ -41,10 +43,13 @@ export const PieChart: React.FC<PieChartProps> = ({
   data,
   title,
   onSliceClick,
+  onItemLongPress,
   selectedLabel,
   customTotal,
 }) => {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isLongPressTriggeredRef = useRef(false);
 
   const total = customTotal !== undefined ? customTotal : data.reduce((sum, item) => sum + item.value, 0);
 
@@ -155,33 +160,87 @@ export const PieChart: React.FC<PieChartProps> = ({
           const isSelected = selectedLabel === slice.label;
           const hasSubItems = slice.subItems && slice.subItems.length > 0;
 
+          const handlePointerDown = () => {
+            if (!onItemLongPress) return;
+            isLongPressTriggeredRef.current = false;
+            longPressTimerRef.current = setTimeout(() => {
+              isLongPressTriggeredRef.current = true;
+              onItemLongPress(slice.label, slice.id);
+              if (typeof navigator !== 'undefined' && navigator.vibrate) {
+                try { navigator.vibrate(50); } catch (_) {}
+              }
+            }, 450);
+          };
+
+          const handlePointerUpOrLeave = () => {
+            if (longPressTimerRef.current) {
+              clearTimeout(longPressTimerRef.current);
+              longPressTimerRef.current = null;
+            }
+          };
+
+          const handleClick = () => {
+            if (isLongPressTriggeredRef.current) {
+              isLongPressTriggeredRef.current = false;
+              return;
+            }
+            if (onSliceClick) onSliceClick(slice.label, slice.id);
+          };
+
           return (
             <div key={slice.label + i} className="space-y-1">
-              <button
-                type="button"
-                onClick={() => onSliceClick && onSliceClick(slice.label, slice.id)}
-                className={`w-full flex items-center justify-between px-3 py-1.5 rounded-xl border text-left text-xs transition-all ${
-                  isSelected
-                    ? 'bg-slate-800 border-teal-500 shadow-sm shadow-teal-500/10'
-                    : 'bg-slate-900/60 border-slate-800/80 hover:bg-slate-800/50 hover:border-slate-700'
-                }`}
-              >
-                <div className="flex items-center space-x-2.5 min-w-0">
-                  <span
-                    className="w-3 h-3 rounded-full flex-shrink-0"
-                    style={{ backgroundColor: slice.color }}
-                  />
-                  <span className="font-medium text-slate-200 truncate">{slice.label}</span>
-                </div>
-                <div className="flex items-center space-x-3 ml-2 flex-shrink-0">
-                  <span className="text-slate-400 font-semibold text-[11px]">
-                    %{slice.percentage.toFixed(1)}
-                  </span>
-                  <span className="font-bold text-slate-100">
-                    {slice.value.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺
-                  </span>
-                </div>
-              </button>
+              <div className="relative group">
+                <button
+                  type="button"
+                  onPointerDown={handlePointerDown}
+                  onPointerUp={handlePointerUpOrLeave}
+                  onPointerCancel={handlePointerUpOrLeave}
+                  onPointerLeave={handlePointerUpOrLeave}
+                  onContextMenu={(e) => {
+                    if (onItemLongPress) {
+                      e.preventDefault();
+                      onItemLongPress(slice.label, slice.id);
+                    }
+                  }}
+                  onClick={handleClick}
+                  className={`w-full flex items-center justify-between px-3 py-1.5 rounded-xl border text-left text-xs transition-all select-none ${
+                    isSelected
+                      ? 'bg-slate-800 border-teal-500 shadow-sm shadow-teal-500/10'
+                      : 'bg-slate-900/60 border-slate-800/80 hover:bg-slate-800/50 hover:border-slate-700'
+                  }`}
+                  title={onItemLongPress ? "Filtrelemek için tıkla, düzenlemek için basılı tut" : undefined}
+                >
+                  <div className="flex items-center space-x-2.5 min-w-0">
+                    <span
+                      className="w-3 h-3 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: slice.color }}
+                    />
+                    <span className="font-medium text-slate-200 truncate">{slice.label}</span>
+                  </div>
+                  <div className="flex items-center space-x-2 ml-2 flex-shrink-0">
+                    <span className="text-slate-400 font-semibold text-[11px]">
+                      %{slice.percentage.toFixed(1)}
+                    </span>
+                    <span className="font-bold text-slate-100">
+                      {slice.value.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺
+                    </span>
+                    {onItemLongPress && (
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onItemLongPress(slice.label, slice.id);
+                        }}
+                        className="opacity-40 hover:opacity-100 p-0.5 rounded text-slate-400 hover:text-white transition-opacity ml-1"
+                        title="İşlemler (Düzenle / Bağla / Birleştir / Sil)"
+                      >
+                        <MoreVertical className="w-3.5 h-3.5" />
+                      </span>
+                    )}
+                  </div>
+                </button>
+              </div>
 
               {/* Sub-items (Alt Kategoriler / Detaylar) */}
               {hasSubItems && (
