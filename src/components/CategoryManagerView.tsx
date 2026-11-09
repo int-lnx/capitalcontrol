@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useExpenses } from '../context/ExpenseContext';
-import { FolderTree, Plus, Trash2, ChevronRight, X, Edit2, Check, Clock, GitMerge, RotateCcw } from 'lucide-react';
-import { formatCurrency, formatDateFormatted, getTodayString } from '../utils/formatters';
+import { FolderTree, Plus, Trash2, ChevronRight, X, Edit2, Check, Clock, GitMerge, RotateCcw, Sparkles } from 'lucide-react';
+import { formatCurrency, formatDateFormatted } from '../utils/formatters';
 import { PieChart } from './PieChart';
 import { PeriodPickerModal } from './PeriodPickerModal';
 import { TagChips } from './TagChips';
@@ -9,11 +9,15 @@ import { TagChips } from './TagChips';
 interface CategoryManagerViewProps {
   periodFilter?: string;
   onPeriodFilterChange?: (p: string) => void;
+  showTheoretical?: boolean;
+  onToggleTheoretical?: () => void;
 }
 
 export const CategoryManagerView: React.FC<CategoryManagerViewProps> = ({
   periodFilter,
   onPeriodFilterChange,
+  showTheoretical,
+  onToggleTheoretical,
 }) => {
   const {
     categories,
@@ -28,8 +32,14 @@ export const CategoryManagerView: React.FC<CategoryManagerViewProps> = ({
     setEditingExpense,
   } = useExpenses();
 
-  const todayStr = getTodayString();
   const currentMonthKey = new Date().toISOString().substring(0, 7);
+
+  const [localShowTheor, setLocalShowTheor] = useState<boolean>(() => {
+    const saved = localStorage.getItem('masraf_status_show_theoretical');
+    return saved !== null ? saved === 'true' : true;
+  });
+  const effectiveShowTheor = showTheoretical !== undefined ? showTheoretical : localShowTheor;
+  const handleToggleTheor = onToggleTheoretical || (() => setLocalShowTheor(p => !p));
 
   const [newCatName, setNewCatName] = useState('');
   const [newCatColor, setNewCatColor] = useState('#3b82f6');
@@ -49,9 +59,19 @@ export const CategoryManagerView: React.FC<CategoryManagerViewProps> = ({
   const catLongPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isCatLongPressTriggeredRef = useRef<boolean>(false);
 
-  // Available months (Past and current only)
+  // Available months (tüm geçmiş, mevcut ve gelecek dönemler)
   const availableMonths = Array.from(
-    new Set(expenses.filter(e => e.date <= todayStr).map(e => e.date.substring(0, 7)))
+    new Set(
+      expenses
+        .filter(e => {
+          if (e.isTheoretical || e.paymentType === 'teorik') {
+            if (!effectiveShowTheor) return false;
+            if (e.date.substring(0, 7) < currentMonthKey) return false;
+          }
+          return true;
+        })
+        .map(e => e.date.substring(0, 7))
+    )
   );
   if (!availableMonths.includes(currentMonthKey)) {
     availableMonths.push(currentMonthKey);
@@ -69,11 +89,16 @@ export const CategoryManagerView: React.FC<CategoryManagerViewProps> = ({
     return `${monthNames[parseInt(m, 10) - 1] || m} ${year}`;
   };
 
-  // Base expenses strictly filtered by period
+  // Base expenses strictly filtered by period (gelecek dönemler ve onay bekleyenler de grafiksel görünüme dahil)
   const baseExpenses = expenses.filter(exp => {
-    const isPastOrToday = exp.date <= todayStr;
+    const isTheor = Boolean(exp.isTheoretical || exp.paymentType === 'teorik');
+    if (isTheor) {
+      if (!effectiveShowTheor) return false;
+      // Ayı geçmiş teorik harcamalar kaybolur
+      if (exp.date.substring(0, 7) < currentMonthKey) return false;
+    }
     const matchesMonth = selectedMonthFilter !== 'all' ? exp.date.startsWith(selectedMonthFilter) : true;
-    return isPastOrToday && matchesMonth;
+    return matchesMonth;
   });
 
   const periodTotalSpent = baseExpenses.reduce((s, e) => s + e.amount, 0);
@@ -210,19 +235,35 @@ export const CategoryManagerView: React.FC<CategoryManagerViewProps> = ({
       {/* 1. PIE CHART VE DÖNEM SEÇİCİ EN ÜSTTE */}
       <div className="space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-          {/* Sol Üst: Dönem Seçici Butonu */}
-          <button
-            type="button"
-            onClick={() => setIsPeriodModalOpen(true)}
-            className="flex items-center space-x-1.5 bg-slate-800/90 hover:bg-slate-700/80 border border-slate-700/80 px-2.5 py-1.5 rounded-xl self-start transition-colors"
-            title="Dönem Seçimi Yap"
-          >
-            <Clock className="w-3.5 h-3.5 text-teal-400 shrink-0" />
-            <span className="text-[11px] text-slate-400 font-medium">Dönem:</span>
-            <span className="text-xs font-semibold text-teal-300">
-              {formatMonthName(selectedMonthFilter)}
-            </span>
-          </button>
+          {/* Sol Üst: Dönem Seçici ve Teorik Toggle Butonları */}
+          <div className="flex items-center gap-2 self-start flex-wrap">
+            <button
+              type="button"
+              onClick={() => setIsPeriodModalOpen(true)}
+              className="flex items-center space-x-1.5 bg-slate-800/90 hover:bg-slate-700/80 border border-slate-700/80 px-2.5 py-1.5 rounded-xl transition-colors"
+              title="Dönem Seçimi Yap"
+            >
+              <Clock className="w-3.5 h-3.5 text-teal-400 shrink-0" />
+              <span className="text-[11px] text-slate-400 font-medium">Dönem:</span>
+              <span className="text-xs font-semibold text-teal-300">
+                {formatMonthName(selectedMonthFilter)}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleToggleTheor}
+              className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+                effectiveShowTheor
+                  ? 'bg-purple-500/20 text-purple-300 border-purple-500/40 shadow-sm'
+                  : 'bg-slate-800/80 text-slate-400 border-slate-700/80 hover:text-slate-200'
+              }`}
+              title="Teorik / Varsayımsal Harcamaları Göster / Gizle"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+              <span>Teorik: {effectiveShowTheor ? 'Açık' : 'Kapalı'}</span>
+            </button>
+          </div>
 
           <div className="text-right">
             <span className="text-xs text-slate-400">Dönem Harcama Toplamı: </span>

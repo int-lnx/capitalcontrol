@@ -27,9 +27,16 @@ export const CalendarView: React.FC = () => {
   // Day of week of first day (Monday = 0 ... Sunday = 6)
   const firstDayIndex = (new Date(year, month, 1).getDay() + 6) % 7;
 
+  const currentMonthKey = new Date().toISOString().substring(0, 7);
+
   // Group current month expenses by YYYY-MM-DD
   const monthPrefix = `${year}-${String(month + 1).padStart(2, '0')}`;
-  const monthExpenses = expenses.filter(e => e.date.startsWith(monthPrefix));
+  const monthExpenses = expenses.filter(e => {
+    if (e.isTheoretical || e.paymentType === 'teorik') {
+      if (e.date.substring(0, 7) < currentMonthKey) return false;
+    }
+    return e.date.startsWith(monthPrefix);
+  });
   const monthTotal = monthExpenses.reduce((sum, e) => sum + e.amount, 0);
 
   const expensesByDate = monthExpenses.reduce<{ [dayStr: string]: typeof expenses }>((acc, exp) => {
@@ -40,7 +47,12 @@ export const CalendarView: React.FC = () => {
 
   const weekDays = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
 
-  const selectedExpenses = selectedDayStr ? expenses.filter(e => e.date === selectedDayStr) : [];
+  const selectedExpenses = selectedDayStr ? expenses.filter(e => {
+    if (e.isTheoretical || e.paymentType === 'teorik') {
+      if (e.date.substring(0, 7) < currentMonthKey) return false;
+    }
+    return e.date === selectedDayStr;
+  }) : [];
   const selectedDayTotal = selectedExpenses.reduce((sum, e) => sum + e.amount, 0);
 
   return (
@@ -207,6 +219,11 @@ export const CalendarView: React.FC = () => {
                           {exp.necessity && (
                             <span className="px-1 py-0.2 rounded bg-slate-700 text-teal-300">
                               {exp.necessity}
+                            </span>
+                          )}
+                          {(exp.isTheoretical || exp.paymentType === 'teorik') && (
+                            <span className="px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40 font-semibold">
+                              🔮 Teorik
                             </span>
                           )}
                         </div>

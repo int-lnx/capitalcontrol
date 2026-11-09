@@ -104,6 +104,74 @@ function sanitizeForFirestore<T>(data: T): T {
   return JSON.parse(JSON.stringify(data));
 }
 
+// Helper: Ensure all active unlimited recurring expenses have future occurrences projected (up to 24 cycles ahead)
+function projectMissingUnlimitedRecurrences(list: Expense[]): Expense[] {
+  if (!Array.isArray(list) || list.length === 0) return list || [];
+  const todayStr = new Date().toISOString().split('T')[0];
+  const nowIso = new Date().toISOString();
+
+  // Find all items that are part of an unlimited recurrence
+  const unlimitedItems = list.filter(e => e.isUnlimitedRecurrence);
+  if (unlimitedItems.length === 0) return list;
+
+  // Group by recurrenceBatchId or individual id
+  const seriesGroups = new Map<string, Expense[]>();
+  unlimitedItems.forEach(item => {
+    const key = item.recurrenceBatchId || item.id;
+    if (!seriesGroups.has(key)) seriesGroups.set(key, []);
+    seriesGroups.get(key)!.push(item);
+  });
+
+  const addedItems: Expense[] = [];
+
+  seriesGroups.forEach((_groupItems, batchId) => {
+    // Find all items in the full list with this batchId
+    const allInSeries = list.filter(e => (e.recurrenceBatchId && e.recurrenceBatchId === batchId) || e.id === batchId);
+    allInSeries.sort((a, b) => a.date.localeCompare(b.date));
+
+    const latestItem = allInSeries[allInSeries.length - 1];
+    if (!latestItem) return;
+
+    // Count future items (> todayStr)
+    const futureCount = allInSeries.filter(e => e.date > todayStr).length;
+    const targetFutureCount = 24;
+    const missingCount = targetFutureCount - futureCount;
+
+    if (missingCount > 0) {
+      const freq = latestItem.recurrenceFrequency || 'aylik';
+      const willAskApproval = Boolean(latestItem.askApproval);
+      const isTheor = Boolean(latestItem.isTheoretical || latestItem.paymentType === 'teorik');
+      const startNum = (latestItem.installmentNumber || allInSeries.length) + 1;
+
+      for (let i = 1; i <= missingCount; i++) {
+        const itemDate = addRecurrenceToDateString(latestItem.date, freq, i);
+        const recNumber = startNum + (i - 1);
+        const newId = `${batchId}-rec-gen-${i}-${Math.random().toString(36).substring(2, 7)}`;
+
+        addedItems.push({
+          ...latestItem,
+          id: newId,
+          parentExpenseId: batchId,
+          recurrenceBatchId: batchId,
+          isUnlimitedRecurrence: true,
+          isTheoretical: isTheor,
+          paymentType: latestItem.paymentType || (isTheor ? 'teorik' : 'tekrarlayan'),
+          installmentNumber: recNumber,
+          installmentCount: undefined,
+          date: itemDate,
+          status: willAskApproval && !isTheor ? 'pending' : undefined,
+          pendingApproval: false,
+          askApproval: isTheor ? false : willAskApproval,
+          createdAt: nowIso,
+        });
+      }
+    }
+  });
+
+  if (addedItems.length === 0) return list;
+  return [...list, ...addedItems];
+}
+
 export const ExpenseProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
   const [isCloudSyncing, setIsCloudSyncing] = useState<boolean>(false);
@@ -113,7 +181,8 @@ export const ExpenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // In-memory states (defaults to EMPTY expenses now)
   const [expenses, setExpenses] = useState<Expense[]>(() => {
     const saved = localStorage.getItem(LOCAL_KEYS.EXPENSES);
-    return saved ? JSON.parse(saved) : INITIAL_EXPENSES;
+    const parsed: Expense[] = saved ? JSON.parse(saved) : INITIAL_EXPENSES;
+    return projectMissingUnlimitedRecurrences(parsed);
   });
 
   const [categories, setCategories] = useState<Category[]>(() => {
@@ -188,8 +257,9 @@ export const ExpenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (docSnap.exists()) {
           const data = docSnap.data();
           if (Array.isArray(data.expenses)) {
-            setExpenses(data.expenses);
-            localStorage.setItem(LOCAL_KEYS.EXPENSES, JSON.stringify(data.expenses));
+            const projected = projectMissingUnlimitedRecurrences(data.expenses);
+            setExpenses(projected);
+            localStorage.setItem(LOCAL_KEYS.EXPENSES, JSON.stringify(projected));
           }
           if (Array.isArray(data.categories)) {
             setCategories(data.categories);
@@ -417,7 +487,8 @@ export const ExpenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
           })
         );
       }
-    } else if (expenseData.paymentType === 'tekrarlayan') {
+    } else if (expenseData.paymentType === 'tekrarlayan' || expenseData.paymentType === 'teorik') {
+      const isTheor = expenseData.paymentType === 'teorik' || Boolean(expenseData.isTheoretical);
       const isUnlimited = Boolean(expenseData.isUnlimitedRecurrence);
       // For unlimited, pre-generate next 24 cycles (e.g. 2 years ahead) and mark as unlimited recurrence
       const count = isUnlimited ? 24 : (expenseData.recurrenceCount || 1);
@@ -437,7 +508,7 @@ export const ExpenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
         let status: 'pending' | 'approved' | undefined = undefined;
         let pendingApproval = false;
 
-        if (willAskApproval) {
+        if (willAskApproval && !isTheor) {
           if (isFuture) {
             status = 'pending';
             pendingApproval = false;
@@ -458,12 +529,14 @@ export const ExpenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
           parentExpenseId: parentId,
           recurrenceBatchId: parentId,
           isUnlimitedRecurrence: isUnlimited,
+          isTheoretical: isTheor,
+          paymentType: expenseData.paymentType,
           installmentNumber: currentRecurrenceNumber,
           installmentCount: isUnlimited ? undefined : (startNum > 1 ? startNum + count - 1 : count),
           date: itemDate,
           status,
           pendingApproval,
-          askApproval: willAskApproval,
+          askApproval: isTheor ? false : willAskApproval,
           createdAt: nowIso,
         });
       }
@@ -471,7 +544,8 @@ export const ExpenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
       updatedList = [...newExpensesBatch, ...expenses];
       setExpenses(updatedList);
 
-      if (expenseData.accountId) {
+      // Teorik harcamalar hesap bakiyesini ETKİLEMEZ (gerçek bir para çıkışı değildir)
+      if (expenseData.accountId && !isTheor) {
         setAccounts(prev =>
           prev.map(acc => {
             if (acc.id === expenseData.accountId) {
@@ -526,6 +600,7 @@ export const ExpenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     expensesBatch.forEach((item, index) => {
       const isInstallment = item.paymentType === 'taksitli' && (item.installmentCount || 1) > 1;
+      const isRecurring = item.paymentType === 'tekrarlayan' || item.paymentType === 'teorik';
       const parentId = 'exp-' + Date.now() + '-' + index;
 
       if (isInstallment) {
@@ -579,6 +654,59 @@ export const ExpenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (item.accountId) {
           accountDeductions[item.accountId] = (accountDeductions[item.accountId] || 0) + installmentAmount;
         }
+      } else if (isRecurring) {
+        const isTheor = item.paymentType === 'teorik' || Boolean(item.isTheoretical);
+        const isUnlimited = Boolean(item.isUnlimitedRecurrence);
+        const count = isUnlimited ? 24 : (item.recurrenceCount || 1);
+        const freq = item.recurrenceFrequency || 'aylik';
+        const todayStr = new Date().toISOString().split('T')[0];
+        const willAskApproval = Boolean(item.askApproval);
+        const startNum = item.startRecurrenceNumber && item.startRecurrenceNumber > 0 ? item.startRecurrenceNumber : 1;
+
+        for (let i = 1; i <= count; i++) {
+          const itemDate = addRecurrenceToDateString(item.date, freq, i - 1);
+          const isFuture = itemDate > todayStr;
+          const isDueOrPast = itemDate <= todayStr;
+
+          let status: 'pending' | 'approved' | undefined = undefined;
+          let pendingApproval = false;
+
+          if (willAskApproval && !isTheor) {
+            if (isFuture) {
+              status = 'pending';
+              pendingApproval = false;
+            } else if (i > 1 && isDueOrPast) {
+              status = 'pending';
+              pendingApproval = true;
+            } else {
+              status = 'approved';
+              pendingApproval = false;
+            }
+          }
+
+          const currentRecurrenceNumber = startNum + (i - 1);
+
+          newItems.push({
+            ...item,
+            id: i === 1 ? parentId : `${parentId}-rec-${i}`,
+            parentExpenseId: parentId,
+            recurrenceBatchId: parentId,
+            isUnlimitedRecurrence: isUnlimited,
+            isTheoretical: isTheor,
+            paymentType: item.paymentType,
+            installmentNumber: currentRecurrenceNumber,
+            installmentCount: isUnlimited ? undefined : (startNum > 1 ? startNum + count - 1 : count),
+            date: itemDate,
+            status,
+            pendingApproval,
+            askApproval: isTheor ? false : willAskApproval,
+            createdAt: nowIso,
+          });
+        }
+
+        if (item.accountId && !isTheor) {
+          accountDeductions[item.accountId] = (accountDeductions[item.accountId] || 0) + item.amount;
+        }
       } else {
         newItems.push({
           ...item,
@@ -586,7 +714,7 @@ export const ExpenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
           createdAt: nowIso,
         });
 
-        if (item.accountId) {
+        if (item.accountId && !item.isTheoretical && item.paymentType !== 'teorik') {
           accountDeductions[item.accountId] = (accountDeductions[item.accountId] || 0) + item.amount;
         }
       }
@@ -757,6 +885,14 @@ export const ExpenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     const freq = (updatedData.recurrenceFrequency || target.recurrenceFrequency || 'aylik') as 'gunluk' | 'haftalik' | 'aylik' | 'yillik';
+    const isUnlimited = updatedData.isUnlimitedRecurrence !== undefined
+      ? Boolean(updatedData.isUnlimitedRecurrence)
+      : Boolean(target.isUnlimitedRecurrence);
+    const isTheor = updatedData.paymentType === 'teorik'
+      || updatedData.isTheoretical !== undefined
+      ? Boolean(updatedData.isTheoretical || updatedData.paymentType === 'teorik')
+      : Boolean(target.isTheoretical || target.paymentType === 'teorik');
+
     const currentRecNumber = (customStartRecurrenceNumber !== undefined && customStartRecurrenceNumber > 0)
       ? customStartRecurrenceNumber
       : (target.installmentNumber || 1);
@@ -772,9 +908,11 @@ export const ExpenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return true;
     });
 
-    // Kalan tekrar sayısı belirtilmişse ona göre üret; belirtilmemişse mevcut gelecek kayıt sayısı kadar güncelle
+    // Kalan tekrar sayısı belirtilmişse ona göre üret; belirtilmemişse veya sınırsızsa 24 dönem üret
     const existingFutureCount = expenses.filter(e => e.recurrenceBatchId === batchId && e.date >= target.date).length;
-    const countToGenerate = (remainingFutureCount && remainingFutureCount > 0) ? remainingFutureCount : Math.max(existingFutureCount, 1);
+    const countToGenerate = isUnlimited
+      ? 24
+      : ((remainingFutureCount && remainingFutureCount > 0) ? remainingFutureCount : Math.max(existingFutureCount, 1));
 
     const newFutureBatch: Expense[] = [];
     const baseDate = updatedData.date || target.date;
@@ -789,7 +927,7 @@ export const ExpenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
       let status: 'pending' | 'approved' | undefined = undefined;
       let pendingApproval = false;
 
-      if (willAskApproval) {
+      if (willAskApproval && !isTheor) {
         if (isFuture) {
           status = 'pending';
           pendingApproval = false;
@@ -808,11 +946,14 @@ export const ExpenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
         id: itemId,
         date: itemDate,
         installmentNumber: recNumber,
-        installmentCount: target.isUnlimitedRecurrence ? undefined : (currentRecNumber + countToGenerate - 1),
+        installmentCount: isUnlimited ? undefined : (currentRecNumber + countToGenerate - 1),
         recurrenceBatchId: batchId,
-        status,
-        pendingApproval,
-        askApproval: willAskApproval,
+        isUnlimitedRecurrence: isUnlimited,
+        isTheoretical: isTheor,
+        paymentType: updatedData.paymentType || target.paymentType || (isTheor ? 'teorik' : 'tekrarlayan'),
+        status: isTheor ? undefined : status,
+        pendingApproval: isTheor ? false : pendingApproval,
+        askApproval: isTheor ? false : willAskApproval,
         createdAt: target.createdAt || nowIso,
       });
     }
@@ -868,15 +1009,23 @@ export const ExpenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const target = expenses.find(e => e.id === id);
     let updatedList = expenses;
 
-    if (target?.paymentType === 'tekrarlayan' && target?.recurrenceBatchId) {
+    if ((target?.paymentType === 'tekrarlayan' || target?.paymentType === 'teorik') && target?.recurrenceBatchId) {
       const isRelated = confirm('Bu tekrarlayan bir harcama. Sadece bu kaydı mı silmek istersiniz?\n\n[Tamam] = Gelecekteki tüm tekrarlar da silinsin (Geçmiş kayıtlar silinmez)\n[İptal] = Sadece bu tek kayıt silinsin');
       if (isRelated) {
-        updatedList = expenses.filter(e => {
-          if (e.recurrenceBatchId === target.recurrenceBatchId && e.date >= target.date) {
-            return false;
-          }
-          return true;
-        });
+        updatedList = expenses
+          .filter(e => {
+            if (e.recurrenceBatchId === target.recurrenceBatchId && e.date >= target.date) {
+              return false;
+            }
+            return true;
+          })
+          .map(e => {
+            // Serinin kalan eski kayıtlarında sınırsız tekrar bayrağını kapat (yeniden türemesin)
+            if (e.recurrenceBatchId === target.recurrenceBatchId) {
+              return { ...e, isUnlimitedRecurrence: false };
+            }
+            return e;
+          });
       } else {
         updatedList = expenses.filter(e => e.id !== id);
       }

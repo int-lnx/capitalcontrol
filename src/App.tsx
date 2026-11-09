@@ -26,6 +26,18 @@ export function AppContent() {
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
   const currentMonthKey = new Date().toISOString().substring(0, 7);
   const [statusPeriodFilter, setStatusPeriodFilter] = useState<string>(currentMonthKey);
+  const [showTheoreticalInStatus, setShowTheoreticalInStatus] = useState<boolean>(() => {
+    const saved = localStorage.getItem('masraf_status_show_theoretical');
+    return saved !== null ? saved === 'true' : true;
+  });
+
+  const toggleTheoreticalInStatus = () => {
+    setShowTheoreticalInStatus(prev => {
+      const next = !prev;
+      localStorage.setItem('masraf_status_show_theoretical', String(next));
+      return next;
+    });
+  };
 
   const isModalOpen = isAddModalOpen || Boolean(editingExpense);
 
@@ -63,6 +75,8 @@ export function AppContent() {
           <TagQueryView
             periodFilter={statusPeriodFilter}
             onPeriodFilterChange={setStatusPeriodFilter}
+            showTheoretical={showTheoreticalInStatus}
+            onToggleTheoretical={toggleTheoreticalInStatus}
           />
         );
       case 'categories':
@@ -70,6 +84,8 @@ export function AppContent() {
           <CategoryManagerView
             periodFilter={statusPeriodFilter}
             onPeriodFilterChange={setStatusPeriodFilter}
+            showTheoretical={showTheoreticalInStatus}
+            onToggleTheoretical={toggleTheoreticalInStatus}
           />
         );
       case 'savings':
@@ -77,6 +93,8 @@ export function AppContent() {
           <SavingsView
             periodFilter={statusPeriodFilter}
             onPeriodFilterChange={setStatusPeriodFilter}
+            showTheoretical={showTheoreticalInStatus}
+            onToggleTheoretical={toggleTheoreticalInStatus}
           />
         );
       

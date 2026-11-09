@@ -1,4 +1,4 @@
-export type PaymentType = 'pesin' | 'taksitli' | 'tekrarlayan';
+export type PaymentType = 'pesin' | 'taksitli' | 'tekrarlayan' | 'teorik';
 
 export type RecurrenceFrequency = 'gunluk' | 'haftalik' | 'aylik' | 'yillik';
 
@@ -60,6 +60,7 @@ export interface Expense {
   recurrenceFrequency?: RecurrenceFrequency;
   recurrenceCount?: number;
   isUnlimitedRecurrence?: boolean; // Sınırsız / sürekli tekrarlayan harcama
+  isTheoretical?: boolean; // Teorik / varsayımsal planlama harcaması (gerçek bakiyeyi etkilemez, ayı geçince kaybolur)
   recurrenceBatchId?: string; // Tekrarlı harcama grubunu ilişkilendiren kimlik
   splitBatchId?: string; // Aynı fiş/faturadan bölünen harcamaları ilişkilendiren kimlik
   splitTitle?: string; // Ayrım adı veya numarası (Örn: "1. Ayrım", "Market")

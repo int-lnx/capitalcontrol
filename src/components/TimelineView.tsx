@@ -107,8 +107,9 @@ export const TimelineView: React.FC = () => {
   // Sort from nearest upcoming/current month to older months (descending order)
   availableMonths.sort((a, b) => b.localeCompare(a));
 
-  // EXPENSES: If future month is explicitly chosen, show that month's entries; otherwise limit to today
+  // EXPENSES: If future month is explicitly chosen, show that month's entries; otherwise limit to today (Teorik harcamalar gerçek log günlüğünde yer almaz)
   const activePeriodExpenses = expenses.filter(exp => {
+    if (exp.isTheoretical || exp.paymentType === 'teorik') return false;
     if (selectedMonthFilter !== 'all' && selectedMonthFilter.length === 7 && selectedMonthFilter > currentMonthKey) {
       return exp.date.startsWith(selectedMonthFilter);
     }

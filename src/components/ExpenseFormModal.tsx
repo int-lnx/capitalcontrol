@@ -168,7 +168,7 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
       setTags(editingExpense.tags || []);
       // Ensure correct paymentType even if not explicitly stored
       const inferredPaymentType: PaymentType = editingExpense.paymentType 
-        || (editingExpense.recurrenceBatchId ? 'tekrarlayan' : editingExpense.parentExpenseId ? 'taksitli' : 'pesin');
+        || (editingExpense.isTheoretical ? 'teorik' : editingExpense.recurrenceBatchId ? 'tekrarlayan' : editingExpense.parentExpenseId ? 'taksitli' : 'pesin');
       setPaymentType(inferredPaymentType);
       const instCount = editingExpense.installmentCount || 3;
       setInstallmentCount(instCount);
@@ -181,7 +181,7 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
       setIsUnlimitedRecurrence(Boolean(editingExpense.isUnlimitedRecurrence));
       setAskApproval(editingExpense.askApproval !== false);
       // Check if editing a recurring series to compute remaining count
-      if ((inferredPaymentType === 'tekrarlayan' || editingExpense.recurrenceBatchId) && editingExpense.recurrenceBatchId) {
+      if ((inferredPaymentType === 'tekrarlayan' || inferredPaymentType === 'teorik' || editingExpense.recurrenceBatchId) && editingExpense.recurrenceBatchId) {
         const remainingBatch = expenses.filter(
           e => e.recurrenceBatchId === editingExpense.recurrenceBatchId && e.date >= editingExpense.date
         );
@@ -785,8 +785,8 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
 
     // 2. STANDARD SINGLE EXPENSE
     if (isEditing && editingExpense) {
-      // Tekrarlayan seri düzenleniyorsa:
-      if ((editingExpense.paymentType === 'tekrarlayan' || editingExpense.recurrenceBatchId) && editingExpense.recurrenceBatchId) {
+      // Tekrarlayan veya teorik seri düzenleniyorsa:
+      if ((editingExpense.paymentType === 'tekrarlayan' || editingExpense.paymentType === 'teorik' || editingExpense.recurrenceBatchId) && editingExpense.recurrenceBatchId) {
         const remainingCount = parseInt(remainingRecurrenceCountInput, 10);
         const parsedStartRecurrence = parseInt(startRecurrenceNumberInput, 10);
         updateRecurringSeriesFuture(
@@ -802,10 +802,13 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
             necessity,
             accountId: accountId || undefined,
             limitId: limitId || undefined,
+            paymentType,
+            isUnlimitedRecurrence,
+            isTheoretical: paymentType === 'teorik',
             recurrenceFrequency,
-            askApproval,
+            askApproval: paymentType === 'teorik' ? false : askApproval,
           },
-          !isNaN(remainingCount) && remainingCount > 0 ? remainingCount : undefined,
+          !isUnlimitedRecurrence && !isNaN(remainingCount) && remainingCount > 0 ? remainingCount : undefined,
           !isNaN(parsedStartRecurrence) && parsedStartRecurrence > 0 ? parsedStartRecurrence : undefined
         );
       } else {
@@ -821,6 +824,8 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
           necessity,
           accountId: accountId || undefined,
           limitId: limitId || undefined,
+          paymentType,
+          isTheoretical: paymentType === 'teorik',
           askApproval: (paymentType === 'taksitli' || paymentType === 'tekrarlayan') ? askApproval : undefined,
         });
       }
@@ -839,17 +844,18 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
         subcategoryId: subcategoryId || undefined,
         tags,
         paymentType,
+        isTheoretical: paymentType === 'teorik',
         installmentCount: paymentType === 'taksitli' ? installmentCount : undefined,
         startInstallmentNumber: (paymentType === 'taksitli' && !isAmountTotal && !isNaN(parsedStartInstallment) && parsedStartInstallment > 0)
           ? parsedStartInstallment
           : undefined,
-        recurrenceFrequency: paymentType === 'tekrarlayan' ? recurrenceFrequency : undefined,
-        recurrenceCount: paymentType === 'tekrarlayan' ? (isUnlimitedRecurrence ? undefined : recurrenceCount) : undefined,
-        isUnlimitedRecurrence: paymentType === 'tekrarlayan' ? isUnlimitedRecurrence : undefined,
-        startRecurrenceNumber: (paymentType === 'tekrarlayan' && !isNaN(parsedStartRecurrence) && parsedStartRecurrence > 0)
+        recurrenceFrequency: (paymentType === 'tekrarlayan' || paymentType === 'teorik') ? recurrenceFrequency : undefined,
+        recurrenceCount: (paymentType === 'tekrarlayan' || paymentType === 'teorik') ? (isUnlimitedRecurrence ? undefined : recurrenceCount) : undefined,
+        isUnlimitedRecurrence: (paymentType === 'tekrarlayan' || paymentType === 'teorik') ? isUnlimitedRecurrence : undefined,
+        startRecurrenceNumber: ((paymentType === 'tekrarlayan' || paymentType === 'teorik') && !isNaN(parsedStartRecurrence) && parsedStartRecurrence > 0)
           ? parsedStartRecurrence
           : undefined,
-        askApproval: (paymentType === 'taksitli' || paymentType === 'tekrarlayan') ? askApproval : undefined,
+        askApproval: paymentType === 'teorik' ? false : ((paymentType === 'taksitli' || paymentType === 'tekrarlayan') ? askApproval : undefined),
         necessity,
         accountId: accountId || undefined,
         limitId: limitId || undefined,
@@ -931,12 +937,12 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
           <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3.5">
           
           {/* Payment Type / Seri Ayarları */}
-          {(!isEditing || paymentType === 'tekrarlayan' || paymentType === 'taksitli' || Boolean(editingExpense?.recurrenceBatchId)) && (
+          {(!isEditing || paymentType === 'tekrarlayan' || paymentType === 'teorik' || paymentType === 'taksitli' || Boolean(editingExpense?.recurrenceBatchId)) && (
             <div className="p-2.5 bg-slate-800/40 rounded-xl border border-slate-800">
               {!isEditing ? (
                 <>
                   <label className="block text-xs font-medium text-slate-300 mb-1.5">Ödeme Türü</label>
-                  <div className="grid grid-cols-3 gap-1.5">
+                  <div className="grid grid-cols-4 gap-1.5">
                     <button
                       type="button"
                       onClick={() => setPaymentType('pesin')}
@@ -975,15 +981,29 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
                       <Repeat className="w-3 h-3" />
                       <span>Tekrarlı</span>
                     </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setPaymentType('teorik')}
+                      className={`flex items-center justify-center space-x-1 py-1.5 px-2 rounded-lg text-xs font-semibold transition-all ${
+                        paymentType === 'teorik'
+                          ? 'bg-purple-500 text-white shadow-md'
+                          : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                      }`}
+                      title="Varsayımsal / Gelecek Planlama Harcaması"
+                    >
+                      <Sparkles className="w-3 h-3 text-purple-200" />
+                      <span>Teorik</span>
+                    </button>
                   </div>
                 </>
               ) : (
                 <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-slate-700/60">
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-300">
-                    <Repeat className="w-4 h-4 text-indigo-400" />
-                    <span>Tekrarlayan Harcama Serisi Ayarları</span>
+                  <div className={`flex items-center gap-1.5 text-xs font-bold ${paymentType === 'teorik' ? 'text-purple-300' : 'text-indigo-300'}`}>
+                    {paymentType === 'teorik' ? <Sparkles className="w-4 h-4 text-purple-400" /> : <Repeat className="w-4 h-4 text-indigo-400" />}
+                    <span>{paymentType === 'teorik' ? 'Teorik Planlama Serisi Ayarları' : 'Tekrarlayan Harcama Serisi Ayarları'}</span>
                   </div>
-                  <span className="text-[10px] px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-semibold border border-indigo-500/30">
+                  <span className={`text-[10px] px-2 py-0.5 rounded font-semibold border ${paymentType === 'teorik' ? 'bg-purple-500/20 text-purple-300 border-purple-500/30' : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'}`}>
                     Gelecek Seriyi Güncelle
                   </span>
                 </div>
@@ -1106,33 +1126,57 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
                 </div>
               )}
 
-              {/* Tekrarlı Harcama Seçenekleri */}
-              {paymentType === 'tekrarlayan' && (
-                <div className="mt-2.5 p-2.5 rounded-lg bg-indigo-500/10 border border-indigo-500/20 space-y-2.5">
+              {/* Tekrarlı veya Teorik Harcama Seçenekleri */}
+              {(paymentType === 'tekrarlayan' || paymentType === 'teorik') && (
+                <div className={`mt-2.5 p-2.5 rounded-lg border space-y-2.5 ${
+                  paymentType === 'teorik'
+                    ? 'bg-purple-500/10 border-purple-500/30'
+                    : 'bg-indigo-500/10 border-indigo-500/20'
+                }`}>
+                  {paymentType === 'teorik' && (
+                    <div className="p-2 rounded bg-purple-950/40 border border-purple-500/30 text-[11px] text-purple-200 flex items-start gap-1.5">
+                      <Sparkles className="w-4 h-4 text-purple-400 shrink-0 mt-0.5" />
+                      <div>
+                        <strong className="block text-purple-300">Teorik (Varsayımsal) Harcama:</strong>
+                        Gelecek planlamalarında (mutfak, tahmini faturalar vb.) bütçeyi öngörmek için kullanılır. Vadesi geldiğinde hesap bakiyesinden düşmez ve ilgili ayı geçince kendiliğinden kaybolur.
+                      </div>
+                    </div>
+                  )}
+
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-indigo-300 font-medium">Tekrar Periyodu:</span>
+                    <span className={paymentType === 'teorik' ? 'text-purple-300 font-medium' : 'text-indigo-300 font-medium'}>
+                      Tekrar Periyodu:
+                    </span>
                     <select
                       value={recurrenceFrequency}
                       onChange={e => setRecurrenceFrequency(e.target.value as RecurrenceFrequency)}
-                      className="bg-slate-800 border border-indigo-500/40 text-indigo-300 text-xs rounded-lg px-2 py-1 outline-none"
+                      className={`bg-slate-800 text-xs rounded-lg px-2 py-1 outline-none border ${
+                        paymentType === 'teorik'
+                          ? 'border-purple-500/40 text-purple-300'
+                          : 'border-indigo-500/40 text-indigo-300'
+                      }`}
                     >
                       <option value="gunluk">Günlük</option>
                       <option value="haftalik">Haftalık</option>
-                      <option value="aylik">Aylık (Örn: Kira, Abonelik)</option>
-                      <option value="yillik">Yıllık (Örn: Vergi, Sigorta)</option>
+                      <option value="aylik">Aylık (Örn: Mutfak, Kira, Faturalar)</option>
+                      <option value="yillik">Yıllık</option>
                     </select>
                   </div>
 
                   {/* Sınırsız Tekrar Seçimi */}
-                  <div className="flex items-center justify-between text-xs pt-1 border-t border-indigo-500/20">
+                  <div className={`flex items-center justify-between text-xs pt-1 border-t ${
+                    paymentType === 'teorik' ? 'border-purple-500/20' : 'border-indigo-500/20'
+                  }`}>
                     <span className="text-slate-300">Tekrar Türü:</span>
-                    <div className="flex items-center gap-1.5 bg-slate-800/90 p-0.5 rounded-lg border border-indigo-500/30">
+                    <div className={`flex items-center gap-1.5 bg-slate-800/90 p-0.5 rounded-lg border ${
+                      paymentType === 'teorik' ? 'border-purple-500/30' : 'border-indigo-500/30'
+                    }`}>
                       <button
                         type="button"
                         onClick={() => setIsUnlimitedRecurrence(true)}
                         className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-colors ${
                           isUnlimitedRecurrence
-                            ? 'bg-indigo-500 text-white shadow-sm'
+                            ? (paymentType === 'teorik' ? 'bg-purple-500 text-white shadow-sm' : 'bg-indigo-500 text-white shadow-sm')
                             : 'text-slate-400 hover:text-slate-200'
                         }`}
                       >
@@ -1143,7 +1187,7 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
                         onClick={() => setIsUnlimitedRecurrence(false)}
                         className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-colors ${
                           !isUnlimitedRecurrence
-                            ? 'bg-indigo-500 text-white shadow-sm'
+                            ? (paymentType === 'teorik' ? 'bg-purple-500 text-white shadow-sm' : 'bg-indigo-500 text-white shadow-sm')
                             : 'text-slate-400 hover:text-slate-200'
                         }`}
                       >
@@ -1154,7 +1198,9 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
 
                   {!isUnlimitedRecurrence ? (
                     <>
-                      <div className="flex items-center justify-between text-xs pt-1 border-t border-indigo-500/20">
+                      <div className={`flex items-center justify-between text-xs pt-1 border-t ${
+                        paymentType === 'teorik' ? 'border-purple-500/20' : 'border-indigo-500/20'
+                      }`}>
                         <span className="text-slate-300">
                           {isEditing && editingExpense?.recurrenceBatchId ? 'Üretilecek/Kalan Tekrar Sayısı:' : 'Toplam Tekrar Sayısı:'}
                         </span>
@@ -1195,21 +1241,29 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
                                 }
                               }
                             }}
-                            className="w-16 px-2 py-1 bg-slate-800 border border-indigo-500/50 text-indigo-300 font-bold text-center text-xs rounded-lg outline-none"
+                            className={`w-16 px-2 py-1 bg-slate-800 font-bold text-center text-xs rounded-lg outline-none border ${
+                              paymentType === 'teorik'
+                                ? 'border-purple-500/50 text-purple-300'
+                                : 'border-indigo-500/50 text-indigo-300'
+                            }`}
                           />
-                          <span className="text-[11px] text-indigo-300 font-semibold">Kez</span>
+                          <span className={`text-[11px] font-semibold ${
+                            paymentType === 'teorik' ? 'text-purple-300' : 'text-indigo-300'
+                          }`}>Kez</span>
                         </div>
                       </div>
 
-                      {/* Başlangıç Tekrar Numarası (Yeni harcama oluştururken veya var olan seriyi güncellerken) */}
-                      <div className="flex items-center justify-between text-xs pt-1 border-t border-indigo-500/20">
+                      {/* Başlangıç Tekrar Numarası */}
+                      <div className={`flex items-center justify-between text-xs pt-1 border-t ${
+                        paymentType === 'teorik' ? 'border-purple-500/20' : 'border-indigo-500/20'
+                      }`}>
                         <div className="flex flex-col">
-                          <span className="text-indigo-200 font-medium">
+                          <span className={`font-medium ${paymentType === 'teorik' ? 'text-purple-200' : 'text-indigo-200'}`}>
                             {isEditing ? 'Bu Kaydın Tekrar No (Başlangıç):' : 'Başlangıç Tekrar No:'}
                           </span>
                           <span className="text-[10px] text-slate-400">
                             {isEditing
-                              ? 'Bu kaydın tekrar sırasını değiştirebilirsiniz. Gelecek kayıtlar buradan başlayarak artar (geçmiş korunur).'
+                              ? 'Bu kaydın tekrar sırasını değiştirebilirsiniz. Gelecek kayıtlar buradan başlayarak artar.'
                               : 'Örn: 5 girilirse tekrarlar 5. Tekrar, 6. Tekrar olarak başlar'}
                           </span>
                         </div>
@@ -1228,36 +1282,48 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
                                 setStartRecurrenceNumberInput(String(editingExpense?.installmentNumber || 1));
                               }
                             }}
-                            className="w-16 px-2 py-1 bg-slate-800 border border-indigo-500/50 text-indigo-300 font-bold text-center text-xs rounded-lg outline-none"
+                            className={`w-16 px-2 py-1 bg-slate-800 font-bold text-center text-xs rounded-lg outline-none border ${
+                              paymentType === 'teorik'
+                                ? 'border-purple-500/50 text-purple-300'
+                                : 'border-indigo-500/50 text-indigo-300'
+                            }`}
                             placeholder="1"
                           />
-                          <span className="text-[11px] text-indigo-400 font-semibold">. Tekrar</span>
+                          <span className={`text-[11px] font-semibold ${
+                            paymentType === 'teorik' ? 'text-purple-400' : 'text-indigo-400'
+                          }`}>. Tekrar</span>
                         </div>
                       </div>
                     </>
                   ) : (
-                    <div className="p-1.5 rounded bg-indigo-500/20 border border-indigo-500/30 text-[10px] text-indigo-200 flex items-center gap-1.5">
+                    <div className={`p-1.5 rounded border text-[10px] flex items-center gap-1.5 ${
+                      paymentType === 'teorik'
+                        ? 'bg-purple-500/20 border-purple-500/30 text-purple-200'
+                        : 'bg-indigo-500/20 border-indigo-500/30 text-indigo-200'
+                    }`}>
                       <span>♾️</span>
                       <span>Her periyot otomatik tekrarlanır. İleride tutar değişirse sadece geleceğe yansır, geçmiş kayıtlar korunur.</span>
                     </div>
                   )}
 
-                  {/* Onay İstensin mi Ayarı */}
-                  <div className="flex items-center justify-between text-xs pt-1.5 border-t border-indigo-500/20">
-                    <div className="flex flex-col">
-                      <span className="text-indigo-200 font-medium">Günü gelince sorulsun mu?</span>
-                      <span className="text-[10px] text-slate-400">Tekrar günü geldiğinde hesaba yansımadan önce onayınızı ister</span>
+                  {/* Onay İstensin mi Ayarı (Sadece gerçek tekrarlayanlar için) */}
+                  {paymentType === 'tekrarlayan' && (
+                    <div className="flex items-center justify-between text-xs pt-1.5 border-t border-indigo-500/20">
+                      <div className="flex flex-col">
+                        <span className="text-indigo-200 font-medium">Günü gelince sorulsun mu?</span>
+                        <span className="text-[10px] text-slate-400">Tekrar günü geldiğinde hesaba yansımadan önce onayınızı ister</span>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={askApproval}
+                          onChange={e => setAskApproval(e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-8 h-4 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-indigo-500"></div>
+                      </label>
                     </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={askApproval}
-                        onChange={e => setAskApproval(e.target.checked)}
-                        className="sr-only peer"
-                      />
-                      <div className="w-8 h-4 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-indigo-500"></div>
-                    </label>
-                  </div>
+                  )}
                 </div>
               )}
 

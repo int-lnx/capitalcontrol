@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useExpenses } from '../context/ExpenseContext';
 import { formatCurrency, formatDateFormatted, getTodayString } from '../utils/formatters';
-import { FastForward, Calendar, CheckCircle2, Edit3, Trash2, X, ChevronRight } from 'lucide-react';
+import { FastForward, Calendar, CheckCircle2, Edit3, Trash2, X, ChevronRight, Sparkles } from 'lucide-react';
 import { TagChips } from './TagChips';
 
 const NECESSITY_BORDER_STYLES: Record<string, { border: string; bg: string; text: string; label: string }> = {
@@ -114,12 +114,34 @@ export const UpcomingPaymentsView: React.FC = () => {
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const today = getTodayString();
 
+  const [showTheoretical, setShowTheoretical] = useState<boolean>(() => {
+    const saved = localStorage.getItem('masraf_upcoming_show_theoretical');
+    return saved !== null ? saved === 'true' : true;
+  });
+
+  const toggleTheoretical = () => {
+    setShowTheoretical(prev => {
+      const next = !prev;
+      localStorage.setItem('masraf_upcoming_show_theoretical', String(next));
+      return next;
+    });
+  };
+
   // Upcoming installment payments or future-dated expenses
   const upcomingExpenses = expenses
-    .filter(e => e.date > today)
+    .filter(e => {
+      if (e.date <= today) return false;
+      const isTheor = Boolean(e.isTheoretical || e.paymentType === 'teorik');
+      if (isTheor && !showTheoretical) return false;
+      return true;
+    })
     .sort((a, b) => a.date.localeCompare(b.date));
 
   const totalUpcoming = upcomingExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const theoreticalTotal = upcomingExpenses
+    .filter(e => e.isTheoretical || e.paymentType === 'teorik')
+    .reduce((s, e) => s + e.amount, 0);
+  const realTotal = totalUpcoming - theoreticalTotal;
 
   // Group upcoming by month
   const groupedByMonth = upcomingExpenses.reduce<{ [m: string]: typeof expenses }>((acc, exp) => {
@@ -176,7 +198,7 @@ export const UpcomingPaymentsView: React.FC = () => {
       {/* Banner */}
       <div className="glass-panel p-4 sm:p-5 rounded-2xl border border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
         <div className="flex items-center space-x-3">
-          <div className="w-9 h-9 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-400">
+          <div className="w-9 h-9 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-400 shrink-0">
             <FastForward className="w-5 h-5" />
           </div>
           <div>
@@ -184,6 +206,21 @@ export const UpcomingPaymentsView: React.FC = () => {
             <p className="text-xs text-slate-400">
               Gelecek aylara yansıyacak olan tüm taksit ve planlı ödemeleriniz
             </p>
+            <div className="flex items-center gap-2 mt-2">
+              <button
+                type="button"
+                onClick={toggleTheoretical}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-semibold border transition-all ${
+                  showTheoretical
+                    ? 'bg-purple-500/20 text-purple-300 border-purple-500/40 shadow-sm'
+                    : 'bg-slate-800/80 text-slate-400 border-slate-700/80 hover:text-slate-200'
+                }`}
+                title="Teorik / Varsayımsal Harcamaları Aç / Kapat"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+                <span>Teorik Harcamalar: {showTheoretical ? 'Açık' : 'Kapalı'}</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -194,6 +231,13 @@ export const UpcomingPaymentsView: React.FC = () => {
           <span className="text-base sm:text-lg font-black text-amber-400">
             {formatCurrency(totalUpcoming)}
           </span>
+          {showTheoretical && theoreticalTotal > 0 && (
+            <div className="text-[10px] text-slate-400 mt-0.5">
+              <span>Gerçek: {formatCurrency(realTotal)}</span>
+              <span className="mx-1">•</span>
+              <span className="text-purple-300 font-medium">Teorik: {formatCurrency(theoreticalTotal)}</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -351,7 +395,12 @@ export const UpcomingPaymentsView: React.FC = () => {
                                 </span>
 
                                 <div className="mt-0.5 flex flex-col items-end">
-                                  {exp.paymentType === 'tekrarlayan' ? (
+                                  {exp.paymentType === 'teorik' || exp.isTheoretical ? (
+                                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40 flex items-center gap-1">
+                                      <Sparkles className="w-2.5 h-2.5 text-purple-400" />
+                                      {exp.isUnlimitedRecurrence ? 'Teorik (Sürekli)' : `${exp.installmentNumber || 1}. Teorik`}
+                                    </span>
+                                  ) : exp.paymentType === 'tekrarlayan' ? (
                                     <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
                                       {exp.isUnlimitedRecurrence ? 'Sürekli Tekrar' : `${exp.installmentNumber || 1}. Tekrar`}
                                     </span>
