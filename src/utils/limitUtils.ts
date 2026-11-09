@@ -277,3 +277,4 @@ export function computeLimitHistory(limit: ExpenseLimit, expenses: Expense[]): L
   allRecords.sort((a, b) => b.periodStart.localeCompare(a.periodStart));
   return allRecords;
 }
+
