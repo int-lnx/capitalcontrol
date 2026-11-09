@@ -3,6 +3,7 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 import type { Expense, Category, Account, ExpenseLimit, CustomAccountTotal } from '../types';
 import { INITIAL_CATEGORIES, INITIAL_ACCOUNTS, INITIAL_LIMITS, INITIAL_EXPENSES } from '../utils/mockData';
 import { normalizeTag, withParentTags, getChildTags, getParentTags, type TagParentsMap } from '../utils/tagHierarchy';
+import { getCurrentLimitPeriod } from '../utils/limitUtils';
 import { useAuth } from './AuthContext';
 import { db } from '../firebase';
 
@@ -33,6 +34,7 @@ interface ExpenseContextType {
   addLimit: (limitData: Omit<ExpenseLimit, 'id' | 'spentAmount'>) => void;
   updateLimit: (limit: ExpenseLimit) => void;
   deleteLimit: (id: string) => void;
+  resetLimitPeriodNow: (id: string) => void;
   addAccount: (accountData: Omit<Account, 'id'>) => void;
   updateAccount: (account: Account) => void;
   deleteAccount: (id: string) => void;
@@ -342,16 +344,101 @@ export const ExpenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return () => clearTimeout(timeout);
   }, [categories, accounts, limits, customTotals, tagParents]);
 
-  // Calculate spent amounts for limits
+  // Calculate spent amounts for limits and auto-advance renewal periods
   useEffect(() => {
-    setLimits(prevLimits =>
-      prevLimits.map(lim => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    let changed = false;
+
+    const nextLimits = limits.map(lim => {
+      let currentLim = { ...lim };
+      const freq = currentLim.resetFrequency || 'aylik';
+
+      if (freq !== 'yok') {
+        const periodInfo = getCurrentLimitPeriod(currentLim, todayStr);
+        let curStart = currentLim.currentPeriodStart || periodInfo.currentPeriodStart;
+        let nextReset = currentLim.nextResetDate || periodInfo.nextResetDate;
+
+        // Reset tarihi gelmiş veya geçmişse (today >= nextResetDate)
+        if (nextReset && todayStr >= nextReset) {
+          // Önceki dönemi arşive kaydet
+          const prevStart = curStart;
+          const prevEnd = periodInfo.previousPeriodEnd || todayStr;
+
+          const prevExpenses = expenses.filter(e => {
+            if (e.limitId !== currentLim.id) return false;
+            if (e.isTheoretical || e.paymentType === 'teorik') return false;
+            if (prevStart && e.date < prevStart) return false;
+            if (e.date > prevEnd) return false;
+            return true;
+          });
+          const prevSpent = prevExpenses.reduce((s, e) => s + e.amount, 0);
+
+          const newHistoryItem = {
+            id: `hist-${currentLim.id}-${prevStart || Date.now()}`,
+            periodStart: prevStart || todayStr,
+            periodEnd: prevEnd,
+            targetAmount: currentLim.targetAmount,
+            spentAmount: prevSpent,
+            isOverLimit: prevSpent > currentLim.targetAmount,
+            difference: Math.round((currentLim.targetAmount - prevSpent) * 100) / 100,
+            expenseCount: prevExpenses.length,
+            recordedAt: new Date().toISOString(),
+          };
+
+          // Bir sonraki aktif döneme ilerlet
+          const newPeriod = getCurrentLimitPeriod(currentLim, todayStr);
+          curStart = newPeriod.currentPeriodStart;
+          nextReset = newPeriod.nextResetDate;
+
+          const existingHistory = currentLim.history || [];
+          const alreadyArchived = existingHistory.some(
+            h => h.periodStart === newHistoryItem.periodStart && h.periodEnd === newHistoryItem.periodEnd
+          );
+
+          currentLim.history = alreadyArchived ? existingHistory : [newHistoryItem, ...existingHistory];
+          currentLim.currentPeriodStart = curStart;
+          currentLim.nextResetDate = nextReset;
+          changed = true;
+        } else {
+          if (!currentLim.currentPeriodStart || !currentLim.nextResetDate) {
+            currentLim.currentPeriodStart = curStart;
+            currentLim.nextResetDate = nextReset;
+            changed = true;
+          }
+        }
+
+        // Mevcut aktif döneme ait harcanan tutarı hesapla
+        const activeExpenses = expenses.filter(e => {
+          if (e.limitId !== currentLim.id) return false;
+          if (e.isTheoretical || e.paymentType === 'teorik') return false;
+          if (curStart && e.date < curStart) return false;
+          if (nextReset && e.date >= nextReset) return false;
+          return true;
+        });
+        const currentSpent = activeExpenses.reduce((sum, e) => sum + e.amount, 0);
+
+        if (currentLim.spentAmount !== currentSpent) {
+          currentLim.spentAmount = currentSpent;
+          changed = true;
+        }
+      } else {
+        // Yenilenmeyen sabit limit
         const totalSpent = expenses
-          .filter(e => e.limitId === lim.id)
+          .filter(e => e.limitId === currentLim.id && !e.isTheoretical && e.paymentType !== 'teorik')
           .reduce((sum, e) => sum + e.amount, 0);
-        return { ...lim, spentAmount: totalSpent };
-      })
-    );
+        if (currentLim.spentAmount !== totalSpent) {
+          currentLim.spentAmount = totalSpent;
+          changed = true;
+        }
+      }
+
+      return currentLim;
+    });
+
+    if (changed) {
+      setLimits(nextLimits);
+      localStorage.setItem(LOCAL_KEYS.LIMITS, JSON.stringify(nextLimits));
+    }
   }, [expenses]);
 
   // Check if any scheduled installment or recurring expense has reached its due date today or in the past
@@ -1200,10 +1287,18 @@ export const ExpenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const addLimit = (limitData: Omit<ExpenseLimit, 'id' | 'spentAmount'>) => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const periodInfo = getCurrentLimitPeriod(limitData, todayStr);
+
     const newLimit: ExpenseLimit = {
       ...limitData,
       id: 'lim-' + Date.now(),
+      resetFrequency: limitData.resetFrequency || 'aylik',
+      resetDay: limitData.resetDay || 1,
+      currentPeriodStart: limitData.currentPeriodStart || periodInfo.currentPeriodStart,
+      nextResetDate: limitData.nextResetDate || periodInfo.nextResetDate,
       spentAmount: 0,
+      history: limitData.history || [],
     };
     const nextLimits = [...limits, newLimit];
     setLimits(nextLimits);
@@ -1211,7 +1306,59 @@ export const ExpenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const updateLimit = (updatedLimit: ExpenseLimit) => {
-    const nextLimits = limits.map(l => (l.id === updatedLimit.id ? updatedLimit : l));
+    const todayStr = new Date().toISOString().split('T')[0];
+    const periodInfo = getCurrentLimitPeriod(updatedLimit, todayStr);
+    const refreshedLimit: ExpenseLimit = {
+      ...updatedLimit,
+      currentPeriodStart: updatedLimit.currentPeriodStart || periodInfo.currentPeriodStart,
+      nextResetDate: updatedLimit.nextResetDate || periodInfo.nextResetDate,
+    };
+    const nextLimits = limits.map(l => (l.id === refreshedLimit.id ? refreshedLimit : l));
+    setLimits(nextLimits);
+    saveToFirestoreNow(expenses, categories, accounts, nextLimits);
+  };
+
+  // Limiti anlık olarak sıfırla / yeni döneme geçir (mevcut dönemi geçmişe arşivler)
+  const resetLimitPeriodNow = (limitId: string) => {
+    const target = limits.find(l => l.id === limitId);
+    if (!target) return;
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const curStart = target.currentPeriodStart || todayStr;
+
+    // Mevcut dönemin bugüne kadarki harcamalarını topla ve geçmişe arşivle
+    const currentPeriodExpenses = expenses.filter(e => {
+      if (e.limitId !== target.id) return false;
+      if (e.isTheoretical || e.paymentType === 'teorik') return false;
+      if (curStart && e.date < curStart) return false;
+      if (e.date > todayStr) return false;
+      return true;
+    });
+
+    const spent = currentPeriodExpenses.reduce((s, e) => s + e.amount, 0);
+    const newHistoryRecord = {
+      id: `manual-reset-${Date.now()}`,
+      periodStart: curStart,
+      periodEnd: todayStr,
+      targetAmount: target.targetAmount,
+      spentAmount: spent,
+      isOverLimit: spent > target.targetAmount,
+      difference: Math.round((target.targetAmount - spent) * 100) / 100,
+      expenseCount: currentPeriodExpenses.length,
+      recordedAt: new Date().toISOString(),
+    };
+
+    const periodInfo = getCurrentLimitPeriod(target, todayStr);
+
+    const updatedLimit: ExpenseLimit = {
+      ...target,
+      currentPeriodStart: todayStr,
+      nextResetDate: periodInfo.nextResetDate,
+      spentAmount: 0,
+      history: [newHistoryRecord, ...(target.history || [])],
+    };
+
+    const nextLimits = limits.map(l => (l.id === limitId ? updatedLimit : l));
     setLimits(nextLimits);
     saveToFirestoreNow(expenses, categories, accounts, nextLimits);
   };
@@ -1597,6 +1744,7 @@ export const ExpenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
         addLimit,
         updateLimit,
         deleteLimit,
+        resetLimitPeriodNow,
         addAccount,
         updateAccount,
         deleteAccount,

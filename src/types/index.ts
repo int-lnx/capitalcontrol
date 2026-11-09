@@ -34,6 +34,20 @@ export interface CustomAccountTotal {
   color?: string;
 }
 
+export type LimitResetFrequency = 'aylik' | 'haftalik' | 'ozel' | 'yok';
+
+export interface LimitHistoryRecord {
+  id: string;
+  periodStart: string; // YYYY-MM-DD
+  periodEnd: string;   // YYYY-MM-DD
+  targetAmount: number;
+  spentAmount: number;
+  isOverLimit: boolean;
+  difference: number; // pozitif ise bütçe tasarrufu/kalan, negatif ise bütçe aşımı
+  expenseCount: number;
+  recordedAt?: string;
+}
+
 export interface ExpenseLimit {
   id: string;
   name: string;
@@ -41,6 +55,12 @@ export interface ExpenseLimit {
   spentAmount: number;
   category?: string;
   description?: string;
+  resetFrequency?: LimitResetFrequency; // 'aylik', 'haftalik', 'ozel', 'yok'
+  resetDay?: number; // Aylık periyot için yenilenme günü (1-31, varsayılan 1)
+  startDate?: string; // Limit başlangıç tarihi
+  nextResetDate?: string; // Bir sonraki yenilenme tarihi (YYYY-MM-DD)
+  currentPeriodStart?: string; // Mevcut dönemin başlangıç tarihi (YYYY-MM-DD)
+  history?: LimitHistoryRecord[]; // Tamamlanmış geçmiş dönem kayıtları
 }
 
 export interface Expense {
