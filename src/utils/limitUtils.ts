@@ -219,7 +219,7 @@ export function computeLimitHistory(limit: ExpenseLimit, expenses: Expense[]): L
   // 2. Eğer aylık veya haftalık ise, geçmiş dönemlerdeki harcamaları otomatik dönemlere ayırıp geçmiş listesine ekle
   const limitExpenses = expenses.filter(e => {
     if (e.limitId !== limit.id) return false;
-    if (e.isTheoretical || e.paymentType === 'teorik') return false;
+    if (e.isTheoretical || e.paymentType === 'teorik' || e.isOpportunity || e.paymentType === 'firsat') return false;
     return true;
   });
 

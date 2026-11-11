@@ -366,7 +366,7 @@ export const ExpenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
           const prevExpenses = expenses.filter(e => {
             if (e.limitId !== currentLim.id) return false;
-            if (e.isTheoretical || e.paymentType === 'teorik') return false;
+            if (e.isTheoretical || e.paymentType === 'teorik' || e.isOpportunity || e.paymentType === 'firsat') return false;
             if (prevStart && e.date < prevStart) return false;
             if (e.date > prevEnd) return false;
             return true;
@@ -410,7 +410,7 @@ export const ExpenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
         // Mevcut aktif döneme ait harcanan tutarı hesapla
         const activeExpenses = expenses.filter(e => {
           if (e.limitId !== currentLim.id) return false;
-          if (e.isTheoretical || e.paymentType === 'teorik') return false;
+          if (e.isTheoretical || e.paymentType === 'teorik' || e.isOpportunity || e.paymentType === 'firsat') return false;
           if (curStart && e.date < curStart) return false;
           if (nextReset && e.date >= nextReset) return false;
           return true;
@@ -424,7 +424,7 @@ export const ExpenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
       } else {
         // Yenilenmeyen sabit limit
         const totalSpent = expenses
-          .filter(e => e.limitId === currentLim.id && !e.isTheoretical && e.paymentType !== 'teorik')
+          .filter(e => e.limitId === currentLim.id && !e.isTheoretical && e.paymentType !== 'teorik' && !e.isOpportunity && e.paymentType !== 'firsat')
           .reduce((sum, e) => sum + e.amount, 0);
         if (currentLim.spentAmount !== totalSpent) {
           currentLim.spentAmount = totalSpent;
@@ -646,16 +646,19 @@ export const ExpenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
         );
       }
     } else {
+      const isOpportunity = expenseData.paymentType === 'firsat' || Boolean(expenseData.isOpportunity);
       const newExpense: Expense = {
         ...expenseData,
         id: parentId,
         createdAt: nowIso,
+        isOpportunity,
       };
 
       updatedList = [newExpense, ...expenses];
       setExpenses(updatedList);
 
-      if (expenseData.accountId) {
+      // Fırsat veya teorik kayıtlarda hesaptan nakit çıkışı YAPILMAZ!
+      if (expenseData.accountId && !isOpportunity && !expenseData.isTheoretical) {
         setAccounts(prev =>
           prev.map(acc => {
             if (acc.id === expenseData.accountId) {
@@ -795,13 +798,15 @@ export const ExpenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
           accountDeductions[item.accountId] = (accountDeductions[item.accountId] || 0) + item.amount;
         }
       } else {
+        const isOpportunity = item.paymentType === 'firsat' || Boolean(item.isOpportunity);
         newItems.push({
           ...item,
           id: parentId,
           createdAt: nowIso,
+          isOpportunity,
         });
 
-        if (item.accountId && !item.isTheoretical && item.paymentType !== 'teorik') {
+        if (item.accountId && !item.isTheoretical && item.paymentType !== 'teorik' && !isOpportunity) {
           accountDeductions[item.accountId] = (accountDeductions[item.accountId] || 0) + item.amount;
         }
       }

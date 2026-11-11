@@ -40,7 +40,7 @@ export const SavingsView: React.FC<SavingsViewProps> = ({
   const effectiveShowTheor = showTheoretical !== undefined ? showTheoretical : localShowTheor;
   const handleToggleTheor = onToggleTheoretical || (() => setLocalShowTheor(p => !p));
 
-  const [selectedLevel, setSelectedLevel] = useState<NecessityLevel | 'ALL'>('ALL');
+  const [selectedLevel, setSelectedLevel] = useState<NecessityLevel | 'ALL' | 'FIRSAT'>('ALL');
   const [localMonthFilter, setLocalMonthFilter] = useState<string>(currentMonthKey);
   const selectedMonthFilter = periodFilter !== undefined ? periodFilter : localMonthFilter;
   const setSelectedMonthFilter = onPeriodFilterChange || setLocalMonthFilter;
@@ -88,7 +88,12 @@ export const SavingsView: React.FC<SavingsViewProps> = ({
     return matchesMonth;
   });
 
-  const periodTotalSpent = baseExpenses.reduce((s, e) => s + e.amount, 0);
+  // Fırsat kayıtları nakit çıkışı değildir; kaçan tasarruf potansiyeli olarak ayrıştırılır
+  const realExpenses = baseExpenses.filter(e => e.paymentType !== 'firsat' && !e.isOpportunity);
+  const opportunityExpenses = baseExpenses.filter(e => e.paymentType === 'firsat' || e.isOpportunity);
+
+  const periodTotalSpent = realExpenses.reduce((s, e) => s + e.amount, 0);
+  const missedOpportunitiesTotal = opportunityExpenses.reduce((s, e) => s + e.amount, 0);
 
   // Compute breakdown for each necessity level based on selected period
   const totalsByLevel = ALL_LEVELS.reduce<Record<NecessityLevel, { total: number; count: number }>>(
@@ -99,7 +104,7 @@ export const SavingsView: React.FC<SavingsViewProps> = ({
     {} as Record<NecessityLevel, { total: number; count: number }>
   );
 
-  baseExpenses.forEach(exp => {
+  realExpenses.forEach(exp => {
     const rawLvl = exp.necessity as string;
     let lvl: NecessityLevel = 'Tanımsız';
     if (rawLvl === 'Gereksiz') lvl = 'Kaçınılabilir';
@@ -123,18 +128,27 @@ export const SavingsView: React.FC<SavingsViewProps> = ({
 
   // Filtered expense items
   const filteredExpenses = baseExpenses.filter(exp => {
+    const isOpp = Boolean(exp.paymentType === 'firsat' || exp.isOpportunity);
+    if (selectedLevel === 'FIRSAT') {
+      return isOpp;
+    }
+    if (selectedLevel === 'ALL') {
+      return true;
+    }
+    if (isOpp) return false;
+
     const rawLvl = exp.necessity as string;
     let expLvl: NecessityLevel = 'Tanımsız';
     if (rawLvl === 'Gereksiz') expLvl = 'Kaçınılabilir';
     else if (rawLvl === 'Kayıtsız') expLvl = 'Tanımsız';
     else if (ALL_LEVELS.includes(rawLvl as NecessityLevel)) expLvl = rawLvl as NecessityLevel;
 
-    if (selectedLevel === 'ALL') return true;
     return expLvl === selectedLevel;
   });
 
-  // Calculate potential savings (Kaçınılabilir + İsraf)
+  // Calculate potential savings: Kaçınılabilir + İsraf + Kaçan Fırsatlar
   const wasteAndUnnecessary = (totalsByLevel['Kaçınılabilir']?.total || 0) + (totalsByLevel['İsraf']?.total || 0);
+  const totalPotentialSavings = wasteAndUnnecessary + missedOpportunitiesTotal;
   const savingsPotentialPercent = periodTotalSpent > 0 ? (wasteAndUnnecessary / periodTotalSpent) * 100 : 0;
 
   return (
@@ -182,7 +196,7 @@ export const SavingsView: React.FC<SavingsViewProps> = ({
         <PieChart
           data={chartData}
           customTotal={periodTotalSpent > 0 ? periodTotalSpent : undefined}
-          selectedLabel={selectedLevel === 'ALL' ? undefined : NECESSITY_METAS[selectedLevel]?.label}
+          selectedLabel={selectedLevel === 'ALL' || selectedLevel === 'FIRSAT' ? undefined : NECESSITY_METAS[selectedLevel]?.label}
           onSliceClick={(label) => {
             const matchedKey = ALL_LEVELS.find(lvl => NECESSITY_METAS[lvl].label === label || lvl === label);
             if (matchedKey) {
@@ -194,7 +208,7 @@ export const SavingsView: React.FC<SavingsViewProps> = ({
       </div>
 
       {/* 2. TASARRUF POTANSİYELİ BANNERI (GRAFİĞİN HEMEN ALTINDA) */}
-      <div className="glass-panel p-4 rounded-2xl border border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
+      <div className="glass-panel p-4 rounded-2xl border border-slate-800 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
         <div className="flex items-center space-x-2.5">
           <div className="w-9 h-9 rounded-xl bg-purple-500/10 flex items-center justify-center text-purple-400 shrink-0">
             <Sparkles className="w-5 h-5" />
@@ -202,28 +216,46 @@ export const SavingsView: React.FC<SavingsViewProps> = ({
           <div>
             <h2 className="text-sm sm:text-base font-bold text-white">Tasarruf & İhtiyaç Seviyesi Analizi</h2>
             <p className="text-[11px] text-slate-400">
-              Gereklilik seviyesine göre ayrıştırılan harcama detayları
+              Gereklilik seviyesine ve kaçan fırsatlara göre tasarruf potansiyeli
             </p>
           </div>
         </div>
 
-        <div className="p-2.5 px-3.5 bg-slate-800/80 rounded-xl border border-rose-500/30 text-right w-full sm:w-auto">
-          <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider">
-            Kurtarılabilecek Tasarruf (Kaçınılabilir + İsraf)
-          </span>
-          <div className="flex items-baseline justify-end gap-1.5">
-            <span className="text-sm sm:text-base font-black text-rose-400">
-              {formatCurrency(wasteAndUnnecessary)}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+          {/* Ayrı Satırda Kaçan Fırsatlar */}
+          <div className="p-2.5 px-3.5 bg-slate-800/80 rounded-xl border border-amber-500/30 text-right">
+            <span className="text-amber-400 block text-[10px] uppercase font-bold tracking-wider">
+              🎯 Kaçan Fırsatlar
             </span>
-            <span className="text-xs text-rose-300 font-bold">
-              (%{savingsPotentialPercent.toFixed(1)})
+            <div className="flex items-baseline justify-end gap-1.5">
+              <span className="text-sm sm:text-base font-black text-amber-300">
+                {formatCurrency(missedOpportunitiesTotal)}
+              </span>
+              <span className="text-[10px] text-slate-400 font-medium">
+                ({opportunityExpenses.length} fırsat)
+              </span>
+            </div>
+          </div>
+
+          {/* Toplam Tasarruf Edilebilir Miktar (Kaçınılabilir + İsraf + Kaçan Fırsatlar) */}
+          <div className="p-2.5 px-3.5 bg-slate-800/90 rounded-xl border border-rose-500/40 text-right shadow-sm">
+            <span className="text-slate-300 block text-[10px] uppercase font-bold tracking-wider">
+              Toplam Tasarruf Edilebilir
             </span>
+            <div className="flex items-baseline justify-end gap-1.5">
+              <span className="text-base sm:text-lg font-black text-rose-400">
+                {formatCurrency(totalPotentialSavings)}
+              </span>
+              <span className="text-[11px] text-rose-300 font-bold">
+                (İsraf: {formatCurrency(wasteAndUnnecessary)}{periodTotalSpent > 0 ? ` • %${savingsPotentialPercent.toFixed(1)}` : ''})
+              </span>
+            </div>
           </div>
         </div>
       </div>
 
       {/* 3. SEVİYE SEÇİM KARTLARI */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2">
         {ALL_LEVELS.map(lvl => {
           const meta = NECESSITY_METAS[lvl];
           const data = totalsByLevel[lvl];
@@ -254,14 +286,38 @@ export const SavingsView: React.FC<SavingsViewProps> = ({
             </button>
           );
         })}
+
+        {/* 7. Kaçan Fırsat Kartı */}
+        <button
+          onClick={() => setSelectedLevel(selectedLevel === 'FIRSAT' ? 'ALL' : 'FIRSAT')}
+          className={`p-2.5 rounded-xl border text-left transition-all ${
+            selectedLevel === 'FIRSAT'
+              ? 'bg-amber-950/40 border-amber-400 shadow-md ring-1 ring-amber-400/50'
+              : 'bg-slate-900/60 border-slate-800/80 hover:border-amber-600/50 hover:bg-slate-800/40'
+          }`}
+        >
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-sm">🎯</span>
+            <span className="w-2 h-2 rounded-full bg-amber-400" />
+          </div>
+          <div className="text-xs font-bold text-amber-300 truncate">Kaçan Fırsat</div>
+          <div className="text-[10px] text-slate-400 truncate">{opportunityExpenses.length} Fırsat</div>
+          <div className="text-[11px] font-black mt-0.5 text-amber-400">
+            {formatCurrency(missedOpportunitiesTotal)}
+          </div>
+        </button>
       </div>
 
-      {/* 4. HARCAMA LİSTESİ */}
+      {/* 4. HARCAMA VE FIRSAT LİSTESİ */}
       <div className="glass-panel p-3.5 sm:p-4 rounded-2xl border border-slate-800 space-y-2.5">
         <div className="flex items-center justify-between pb-2 border-b border-slate-800">
           <div className="flex items-center space-x-2">
             <h3 className="text-xs sm:text-sm font-bold text-white">
-              {selectedLevel === 'ALL' ? 'Tüm Harcamalar' : `${NECESSITY_METAS[selectedLevel]?.label} Seviyesindeki Harcamalar`}
+              {selectedLevel === 'ALL'
+                ? 'Tüm Harcamalar & Fırsatlar'
+                : selectedLevel === 'FIRSAT'
+                ? 'Kaçan Fırsatlar'
+                : `${NECESSITY_METAS[selectedLevel]?.label} Seviyesindeki Harcamalar`}
             </h3>
             <span className="text-[10px] px-2 py-0.2 rounded-full bg-slate-800 text-slate-400 font-medium">
               {filteredExpenses.length} Kayıt
@@ -279,10 +335,11 @@ export const SavingsView: React.FC<SavingsViewProps> = ({
         </div>
 
         {filteredExpenses.length === 0 ? (
-          <p className="text-xs text-slate-500 py-6 text-center">Bu seviyede harcama bulunamadı.</p>
+          <p className="text-xs text-slate-500 py-6 text-center">Bu kriterde kayıt bulunamadı.</p>
         ) : (
           <div className="space-y-1.5">
             {filteredExpenses.map(exp => {
+              const isOpp = Boolean(exp.paymentType === 'firsat' || exp.isOpportunity);
               const category = categories.find(c => c.id === exp.categoryId);
               const account = accounts.find(a => a.id === exp.accountId);
               const rawLvl = exp.necessity as string;
@@ -290,13 +347,19 @@ export const SavingsView: React.FC<SavingsViewProps> = ({
               if (rawLvl === 'Gereksiz') lvl = 'Kaçınılabilir';
               else if (rawLvl === 'Kayıtsız') lvl = 'Tanımsız';
               else if (ALL_LEVELS.includes(rawLvl as NecessityLevel)) lvl = rawLvl as NecessityLevel;
-              const meta = NECESSITY_METAS[lvl];
+              const meta = isOpp
+                ? { label: 'Kaçan Fırsat', icon: '🎯', color: '#f59e0b' }
+                : NECESSITY_METAS[lvl];
 
               return (
                 <div
                   key={exp.id}
                   onClick={() => setEditingExpense(exp)}
-                  className="p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/60 hover:border-teal-500/50 hover:bg-slate-800 transition-all cursor-pointer flex items-center justify-between gap-2.5 text-xs active:scale-[0.99]"
+                  className={`p-2.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-2.5 text-xs active:scale-[0.99] ${
+                    isOpp
+                      ? 'bg-amber-950/20 border-amber-500/30 hover:border-amber-400 hover:bg-amber-950/30'
+                      : 'bg-slate-800/60 border-slate-700/60 hover:border-teal-500/50 hover:bg-slate-800'
+                  }`}
                   title="Düzenlemek için tıklayın"
                 >
                   <div className="flex items-center space-x-2.5 min-w-0">
@@ -304,7 +367,7 @@ export const SavingsView: React.FC<SavingsViewProps> = ({
                     <div className="min-w-0">
                       <div className="flex items-center space-x-1.5">
                         <h4 className="font-semibold text-slate-100 truncate">
-                          {exp.title || 'Harcama'}
+                          {exp.title || (isOpp ? 'Kaçan Fırsat' : 'Harcama')}
                         </h4>
                         <span
                           className="px-1.5 py-0.2 rounded text-[9px] font-bold"
@@ -321,14 +384,18 @@ export const SavingsView: React.FC<SavingsViewProps> = ({
                         <span>{formatDateFormatted(exp.date)}</span>
                         <span>• {category?.name || 'Genel'}</span>
                         {account && <span>• {account.name}</span>}
+                        {isOpp && <span className="text-amber-400 font-medium">• Bakiye düşmez</span>}
                       </div>
                     </div>
                   </div>
 
                   <div className="text-right flex-shrink-0">
-                    <span className="font-black text-purple-300 text-xs sm:text-sm">
+                    <span className={`font-black text-xs sm:text-sm ${isOpp ? 'text-amber-400' : 'text-purple-300'}`}>
                       {formatCurrency(exp.amount)}
                     </span>
+                    {isOpp && (
+                      <span className="block text-[9px] text-amber-400/80 font-medium">Kaçan Fırsat</span>
+                    )}
                   </div>
                 </div>
               );

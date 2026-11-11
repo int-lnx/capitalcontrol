@@ -37,7 +37,9 @@ export const CalendarView: React.FC = () => {
     }
     return e.date.startsWith(monthPrefix);
   });
-  const monthTotal = monthExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const monthCashExpenses = monthExpenses.filter(e => e.paymentType !== 'firsat' && !e.isOpportunity);
+  const monthTotal = monthCashExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const monthOpportunityTotal = monthExpenses.filter(e => e.paymentType === 'firsat' || e.isOpportunity).reduce((sum, e) => sum + e.amount, 0);
 
   const expensesByDate = monthExpenses.reduce<{ [dayStr: string]: typeof expenses }>((acc, exp) => {
     if (!acc[exp.date]) acc[exp.date] = [];
@@ -53,7 +55,9 @@ export const CalendarView: React.FC = () => {
     }
     return e.date === selectedDayStr;
   }) : [];
-  const selectedDayTotal = selectedExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const selectedCashExpenses = selectedExpenses.filter(e => e.paymentType !== 'firsat' && !e.isOpportunity);
+  const selectedDayTotal = selectedCashExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const selectedDayOpportunityTotal = selectedExpenses.filter(e => e.paymentType === 'firsat' || e.isOpportunity).reduce((sum, e) => sum + e.amount, 0);
 
   return (
     <div className="space-y-4">
@@ -75,7 +79,13 @@ export const CalendarView: React.FC = () => {
               </button>
             </h2>
             <p className="text-xs text-slate-400">
-              Bu ay toplam: <span className="text-emerald-400 font-bold">{formatCurrency(monthTotal)}</span> ({monthExpenses.length} Harcama)
+              Bu ay toplam: <span className="text-emerald-400 font-bold">{formatCurrency(monthTotal)}</span>
+              {monthOpportunityTotal > 0 && (
+                <span className="text-amber-400 font-semibold ml-1.5" title="Kaçan Fırsat Tutarı">
+                  (+{formatCurrency(monthOpportunityTotal)} Fırsat)
+                </span>
+              )}
+              {' '}({monthExpenses.length} Harcama)
             </p>
           </div>
         </div>
@@ -191,6 +201,11 @@ export const CalendarView: React.FC = () => {
             <div className="text-right">
               <span className="text-xs text-slate-400 block">Günlük Toplam</span>
               <span className="text-base font-extrabold text-emerald-400">{formatCurrency(selectedDayTotal)}</span>
+              {selectedDayOpportunityTotal > 0 && (
+                <span className="text-[10px] text-amber-400 font-bold block" title="Kaçan Fırsat Tutarı">
+                  (+{formatCurrency(selectedDayOpportunityTotal)} Fırsat)
+                </span>
+              )}
             </div>
           </div>
 
@@ -221,6 +236,11 @@ export const CalendarView: React.FC = () => {
                               {exp.necessity}
                             </span>
                           )}
+                          {(exp.isOpportunity || exp.paymentType === 'firsat') && (
+                            <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 font-semibold">
+                              🎯 Fırsat
+                            </span>
+                          )}
                           {(exp.isTheoretical || exp.paymentType === 'teorik') && (
                             <span className="px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40 font-semibold">
                               🔮 Teorik
@@ -229,7 +249,7 @@ export const CalendarView: React.FC = () => {
                         </div>
                       </div>
                     </div>
-                    <span className="font-bold text-emerald-400 ml-2 flex-shrink-0">
+                    <span className={`font-bold ml-2 flex-shrink-0 ${(exp.isOpportunity || exp.paymentType === 'firsat') ? 'text-amber-400' : 'text-emerald-400'}`}>
                       {formatCurrency(exp.amount)}
                     </span>
                   </div>

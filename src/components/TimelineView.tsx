@@ -131,13 +131,21 @@ export const TimelineView: React.FC = () => {
   });
 
   // Dynamic calculations:
-  // 1. Total of currently displayed (filtered) expenses
-  const displayedTotalSpent = filteredExpenses.reduce((sum, e) => sum + e.amount, 0);
+  // 1. Total of currently displayed (filtered) expenses (Fırsat kayıtları nakit çıkışı değildir)
+  const displayedCashExpenses = filteredExpenses.filter(e => e.paymentType !== 'firsat' && !e.isOpportunity);
+  const displayedTotalSpent = displayedCashExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const displayedOpportunitiesTotal = filteredExpenses
+    .filter(e => e.paymentType === 'firsat' || e.isOpportunity)
+    .reduce((sum, e) => sum + e.amount, 0);
   const displayedCount = filteredExpenses.length;
 
   // 2. Total of selected expenses (among all expenses or filtered)
   const selectedExpenses = filteredExpenses.filter(e => selectedExpenseIds.has(e.id));
-  const selectedTotalSpent = selectedExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const selectedCashExpenses = selectedExpenses.filter(e => e.paymentType !== 'firsat' && !e.isOpportunity);
+  const selectedTotalSpent = selectedCashExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const selectedOpportunitiesTotal = selectedExpenses
+    .filter(e => e.paymentType === 'firsat' || e.isOpportunity)
+    .reduce((sum, e) => sum + e.amount, 0);
   const isSelectionActive = selectedExpenseIds.size > 0;
 
   // Toggle selection for an expense
@@ -314,13 +322,17 @@ export const TimelineView: React.FC = () => {
 
             {/* 3. RIGHT: Amount & Underneath Payment Details */}
             <div className="flex flex-col items-end flex-shrink-0 text-right">
-              <span className="text-xs sm:text-sm font-extrabold text-slate-100">
+              <span className={`text-xs sm:text-sm font-extrabold ${expense.paymentType === 'firsat' || expense.isOpportunity ? 'text-amber-400' : 'text-slate-100'}`}>
                 {formatCurrency(expense.amount)}
               </span>
 
               {/* Payment Type, Installment Progress, and Total Amount Below Price */}
               <div className="mt-0.5 flex flex-col items-end">
-                {expense.paymentType === 'taksitli' ? (
+                {expense.paymentType === 'firsat' || expense.isOpportunity ? (
+                  <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                    🎯 Fırsat
+                  </span>
+                ) : expense.paymentType === 'taksitli' ? (
                   <>
                     <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
                       {expense.installmentNumber ? `${expense.installmentNumber}. / ${expense.installmentCount} Taksit` : `${expense.installmentCount} Taksit`}
@@ -443,9 +455,16 @@ export const TimelineView: React.FC = () => {
                 </button>
               )}
             </div>
-            <p className="text-xs sm:text-base font-black text-emerald-400 mt-0.5 truncate">
-              {formatCurrency(isSelectionActive ? selectedTotalSpent : displayedTotalSpent)}
-            </p>
+            <div className="flex items-baseline gap-1.5 flex-wrap">
+              <span className="text-xs sm:text-base font-black text-emerald-400 mt-0.5 truncate">
+                {formatCurrency(isSelectionActive ? selectedTotalSpent : displayedTotalSpent)}
+              </span>
+              {((isSelectionActive ? selectedOpportunitiesTotal : displayedOpportunitiesTotal) > 0) && (
+                <span className="text-[10px] text-amber-400 font-bold" title="Kaçan Fırsat Tutarı (Nakit çıkışı değil)">
+                  (+{formatCurrency(isSelectionActive ? selectedOpportunitiesTotal : displayedOpportunitiesTotal)} Fırsat)
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
