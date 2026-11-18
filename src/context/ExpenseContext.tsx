@@ -24,6 +24,11 @@ interface ExpenseContextType {
   approveExpense: (id: string, modifiedData?: Partial<Expense>) => void;
   updateSplitBatch: (splitBatchId: string, updatedSplits: Omit<Expense, 'id' | 'createdAt'>[]) => void;
   deleteExpense: (id: string) => void;
+  bulkDeleteExpenses: (ids: string[]) => void;
+  bulkUpdateExpenses: (
+    ids: string[],
+    updateFnOrObj: Partial<Expense> | ((prev: Expense) => Partial<Expense>)
+  ) => void;
   deleteSplitBatch: (splitBatchId: string) => void;
   addCategory: (categoryData: Omit<Category, 'id'>) => void;
   updateCategory: (id: string, data: Partial<Omit<Category, 'id'>>) => void;
@@ -1136,6 +1141,33 @@ export const ExpenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
     saveToFirestoreNow(updatedList);
   };
 
+  // Bulk delete multiple expenses
+  const bulkDeleteExpenses = (ids: string[]) => {
+    if (!ids || ids.length === 0) return;
+    const idSet = new Set(ids);
+    const updatedList = expenses.filter(e => !idSet.has(e.id));
+    setExpenses(updatedList);
+    saveToFirestoreNow(updatedList);
+  };
+
+  // Bulk update multiple expenses
+  const bulkUpdateExpenses = (
+    ids: string[],
+    updateFnOrObj: Partial<Expense> | ((prev: Expense) => Partial<Expense>)
+  ) => {
+    if (!ids || ids.length === 0) return;
+    const idSet = new Set(ids);
+    const updatedList = expenses.map(exp => {
+      if (idSet.has(exp.id)) {
+        const patch = typeof updateFnOrObj === 'function' ? updateFnOrObj(exp) : updateFnOrObj;
+        return { ...exp, ...patch };
+      }
+      return exp;
+    });
+    setExpenses(updatedList);
+    saveToFirestoreNow(updatedList);
+  };
+
   // Delete all expenses belonging to a split batch
   const deleteSplitBatch = (splitBatchId: string) => {
     if (!splitBatchId) return;
@@ -1739,6 +1771,8 @@ export const ExpenseProvider: React.FC<{ children: React.ReactNode }> = ({ child
         approveExpense,
         updateSplitBatch,
         deleteExpense,
+        bulkDeleteExpenses,
+        bulkUpdateExpenses,
         deleteSplitBatch,
         addCategory,
         updateCategory,

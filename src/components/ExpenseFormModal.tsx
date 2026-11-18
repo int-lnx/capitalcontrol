@@ -452,7 +452,7 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
 
       const remainingVal = Math.round((rawNumber - splitVal) * 100) / 100;
 
-      // 1. Ayrım: Kullanıcının girdiği ve yeni ayırdığı kısım (kullanıcının girdiği başlık atanır)
+      // 1. Ayrım: Kullanıcının girdiği ve yeni ayırdığı kısım (var olan kategori, etiket ve limit bilgileri bağımsız olarak kopyalanır)
       const split1Title = customTitle || '1. Ayrım';
       const split2Title = title.trim() || '2. Ayrım';
 
@@ -460,11 +460,11 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
         id: 'split-1',
         name: split1Title,
         amount: splitVal,
-        categoryId: '',
-        subcategoryId: '',
-        necessity: 'Tanımsız',
-        limitId: '',
-        tags: [],
+        categoryId,
+        subcategoryId,
+        necessity,
+        limitId,
+        tags: [...tags],
         title: split1Title,
       };
 
@@ -486,14 +486,14 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
       setIsSplitBarOpen(false);
       setSplitInputAmount('');
       setSplitInputTitle('');
-      // Yeni ayrılan kısma odaklan ve form alanlarını ayarla
+      // Yeni ayrılan kısma odaklan ve form alanlarını ayarla (bilgiler bağımsız olarak kopyalanır)
       setActiveSplitIndex(0);
       setActiveSplitAmountInput(String(splitVal));
-      setCategoryId('');
-      setSubcategoryId('');
-      setNecessity('Tanımsız');
-      setLimitId('');
-      setTags([]);
+      setCategoryId(categoryId);
+      setSubcategoryId(subcategoryId);
+      setNecessity(necessity);
+      setLimitId(limitId);
+      setTags([...tags]);
       setTitle(split1Title);
       return;
     }
@@ -513,20 +513,27 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
     const remainingPortion = Math.round((activeSplit.amount - splitVal) * 100) / 100;
     const newSplitTitle = customTitle || `${splits.length + 1}. Ayrım`;
 
+    // Kaynak ayrımın mevcut meta bilgilerini bağımsız kopyala
+    const sourceCategoryId = categoryId || activeSplit.categoryId || '';
+    const sourceSubcategoryId = subcategoryId || activeSplit.subcategoryId || '';
+    const sourceNecessity = necessity || activeSplit.necessity || 'Tanımsız';
+    const sourceLimitId = limitId || activeSplit.limitId || '';
+    const sourceTags = [...(tags.length > 0 ? tags : activeSplit.tags)];
+
     // Build new updated splits array
     const newSplits: SplitItem[] = [];
     splits.forEach((s, idx) => {
       if (idx === activeSplitIndex) {
-        // Yeni ayrılan kısım
+        // Yeni ayrılan kısım (bilgiler kopyalanır, ancak tamamen bağımsızdır)
         newSplits.push({
           id: `split-${Date.now()}`,
           name: newSplitTitle,
           amount: separatedPortion,
-          categoryId: '',
-          subcategoryId: '',
-          necessity: 'Tanımsız',
-          limitId: '',
-          tags: [],
+          categoryId: sourceCategoryId,
+          subcategoryId: sourceSubcategoryId,
+          necessity: sourceNecessity,
+          limitId: sourceLimitId,
+          tags: [...sourceTags],
           title: newSplitTitle,
         });
 
@@ -534,11 +541,11 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
         newSplits.push({
           ...s,
           amount: remainingPortion,
-          categoryId,
-          subcategoryId,
-          necessity,
-          limitId,
-          tags: [...tags],
+          categoryId: sourceCategoryId,
+          subcategoryId: sourceSubcategoryId,
+          necessity: sourceNecessity,
+          limitId: sourceLimitId,
+          tags: [...sourceTags],
           title: title || s.title,
         });
       } else {
@@ -552,11 +559,11 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
     setSplitInputTitle('');
     setActiveSplitIndex(activeSplitIndex);
     setActiveSplitAmountInput(String(separatedPortion));
-    setCategoryId('');
-    setSubcategoryId('');
-    setNecessity('Tanımsız');
-    setLimitId('');
-    setTags([]);
+    setCategoryId(sourceCategoryId);
+    setSubcategoryId(sourceSubcategoryId);
+    setNecessity(sourceNecessity);
+    setLimitId(sourceLimitId);
+    setTags([...sourceTags]);
     setTitle(newSplitTitle);
   };
 

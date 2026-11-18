@@ -10,9 +10,12 @@ import {
   CheckCircle,
   Edit,
   Trash2,
+  Layers,
+  X,
 } from 'lucide-react';
 import { PeriodPickerModal } from './PeriodPickerModal';
 import { TagChips } from './TagChips';
+import { BulkEditModal } from './BulkEditModal';
 
 const NECESSITY_BORDER_STYLES: Record<string, { border: string; bg: string; text: string; label: string }> = {
   Fizyolojik: {
@@ -66,12 +69,22 @@ const NECESSITY_BORDER_STYLES: Record<string, { border: string; bg: string; text
 };
 
 export const TimelineView: React.FC = () => {
-  const { expenses, categories, accounts, limits, setEditingExpense, approveExpense, deleteExpense } = useExpenses();
+  const {
+    expenses,
+    categories,
+    accounts,
+    limits,
+    setEditingExpense,
+    approveExpense,
+    deleteExpense,
+    bulkDeleteExpenses,
+  } = useExpenses();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('');
   
   // Selection state for log entries
   const [selectedExpenseIds, setSelectedExpenseIds] = useState<Set<string>>(new Set());
+  const [isBulkEditModalOpen, setIsBulkEditModalOpen] = useState(false);
 
   // Günü gelip onay bekleyen taksitli veya tekrarlı harcamalar
   const todayStr = getTodayString();
@@ -163,6 +176,27 @@ export const TimelineView: React.FC = () => {
 
   const clearSelection = () => {
     setSelectedExpenseIds(new Set());
+  };
+
+  const handleSelectAllVisible = () => {
+    if (selectedExpenseIds.size === filteredExpenses.length && filteredExpenses.length > 0) {
+      clearSelection();
+    } else {
+      setSelectedExpenseIds(new Set(filteredExpenses.map(e => e.id)));
+    }
+  };
+
+  const handleBulkDelete = () => {
+    const count = selectedExpenseIds.size;
+    if (count === 0) return;
+    if (
+      confirm(
+        `Seçili ${count} harcama kaydını kalıcı olarak silmek istediğinizden emin misiniz?\n\nBu işlem geri alınamaz.`
+      )
+    ) {
+      bulkDeleteExpenses(Array.from(selectedExpenseIds));
+      clearSelection();
+    }
   };
 
   // Group by date
@@ -685,6 +719,85 @@ export const TimelineView: React.FC = () => {
         onChange={setSelectedMonthFilter}
         themeColor="emerald"
         availableMonths={availableMonths}
+      />
+
+      {/* FLOATING TOPLU İŞLEM MODÜLÜ */}
+      {isSelectionActive && (
+        <div className="fixed bottom-14 sm:bottom-16 left-1/2 -translate-x-1/2 z-50 w-[95%] sm:w-auto max-w-lg bg-slate-900/95 border border-emerald-500/50 backdrop-blur-xl shadow-2xl shadow-emerald-950/60 rounded-2xl p-2.5 sm:p-3 flex items-center justify-between gap-2.5 sm:gap-4 animate-in fade-in slide-in-from-bottom-5 duration-200 ring-1 ring-emerald-500/30">
+          
+          {/* Sol Kısım: Seçim Sayacı ve Tutarı */}
+          <div className="flex items-center space-x-2.5 min-w-0 pr-1">
+            <span className="w-7 h-7 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center justify-center text-xs font-black shrink-0">
+              {selectedExpenseIds.size}
+            </span>
+            <div className="min-w-0">
+              <div className="text-xs font-bold text-white flex items-center gap-1.5 truncate">
+                <span>{selectedExpenseIds.size} log seçildi</span>
+                <button
+                  type="button"
+                  onClick={handleSelectAllVisible}
+                  className="text-[10px] text-teal-400 hover:text-teal-300 underline font-normal cursor-pointer"
+                >
+                  {selectedExpenseIds.size === filteredExpenses.length ? 'Bırak' : 'Tümünü Seç'}
+                </button>
+              </div>
+              <div className="text-[11px] text-emerald-400 font-extrabold truncate">
+                {formatCurrency(selectedTotalSpent)}
+                {selectedOpportunitiesTotal > 0 && (
+                  <span className="text-[10px] text-amber-400 font-medium ml-1">
+                    (+{formatCurrency(selectedOpportunitiesTotal)} Fırsat)
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Sağ Kısım: Düzenle, Sil ve Çarpı (İptal) Butonları */}
+          <div className="flex items-center space-x-1.5 shrink-0">
+            {/* Düzenleme Butonu (Pop up screen açar) */}
+            <button
+              type="button"
+              onClick={() => setIsBulkEditModalOpen(true)}
+              className="px-3 py-1.5 rounded-xl bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 border border-teal-500/40 text-xs font-bold flex items-center space-x-1.5 shadow-sm active:scale-95 transition-all"
+              title="Seçili harcamaları toplu düzenle"
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>Düzenle</span>
+            </button>
+
+            {/* Silme Butonu */}
+            <button
+              type="button"
+              onClick={handleBulkDelete}
+              className="px-3 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-bold flex items-center space-x-1.5 shadow-sm active:scale-95 transition-all"
+              title="Seçili harcamaları toplu sil"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Sil</span>
+            </button>
+
+            {/* Çarpı ile İptal Butonu */}
+            <button
+              type="button"
+              onClick={clearSelection}
+              className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white border border-slate-700 transition-all active:scale-95"
+              title="Seçimi İptal Et"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+        </div>
+      )}
+
+      {/* TOPLU DÜZENLEME MODALI (POP UP SCREEN) */}
+      <BulkEditModal
+        isOpen={isBulkEditModalOpen}
+        onClose={() => setIsBulkEditModalOpen(false)}
+        selectedExpenseIds={Array.from(selectedExpenseIds)}
+        onSuccess={() => {
+          clearSelection();
+        }}
       />
 
     </div>
