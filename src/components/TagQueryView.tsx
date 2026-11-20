@@ -15,7 +15,8 @@ import {
   Network,
   FolderTree,
   AlertCircle,
-  Sparkles
+  Sparkles,
+  Search,
 } from 'lucide-react';
 import { PieChart } from './PieChart';
 import { PeriodPickerModal } from './PeriodPickerModal';
@@ -113,6 +114,24 @@ export const TagQueryView: React.FC<TagQueryViewProps> = ({
   const [isPeriodModalOpen, setIsPeriodModalOpen] = useState<boolean>(false);
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
+  const [tagSearchQuery, setTagSearchQuery] = useState<string>('');
+
+  // Etiket arama sorgusuna uyan tüm etiketler (allTags havuzundan)
+  const searchedMatchingTags = useMemo(() => {
+    const q = normalizeTag(tagSearchQuery);
+    if (!q) return [];
+    return allTags
+      .filter(t => normalizeTag(t).includes(q))
+      .sort((a, b) => {
+        const normA = normalizeTag(a);
+        const normB = normalizeTag(b);
+        if (normA === q) return -1;
+        if (normB === q) return 1;
+        if (normA.startsWith(q) && !normB.startsWith(q)) return -1;
+        if (!normA.startsWith(q) && normB.startsWith(q)) return 1;
+        return normA.localeCompare(normB);
+      });
+  }, [tagSearchQuery, allTags]);
 
   // Modals state
   const [activeActionTag, setActiveActionTag] = useState<string | null>(null);
@@ -238,26 +257,34 @@ export const TagQueryView: React.FC<TagQueryViewProps> = ({
     .sort((a, b) => b[1].total - a[1].total);
 
   // Pie chart data: include all tags so everything is accessible in the list
-  const tagChartData: { label: string; value: number; color?: string }[] = sortedTagEntries
+  const rawChartData: { label: string; value: number; color?: string }[] = sortedTagEntries
     .map(([t, item]) => ({
       label: `#${t}`,
       value: Math.round(item.total * 100) / 100,
     }));
 
   if (untaggedDirectTotal > 0) {
-    tagChartData.push({
+    rawChartData.push({
       label: 'Etiketsiz',
       value: Math.round(untaggedDirectTotal * 100) / 100,
       color: '#64748b',
     });
   }
 
-  tagChartData.sort((a, b) => b.value - a.value);
+  rawChartData.sort((a, b) => b.value - a.value);
+
+  // Arama sorgusu varsa grafik verisini ve altındaki listeyi de filtrele
+  const tagChartData = useMemo(() => {
+    const q = normalizeTag(tagSearchQuery);
+    if (!q) return rawChartData;
+    return rawChartData.filter(d => normalizeTag(d.label).includes(q));
+  }, [rawChartData, tagSearchQuery]);
 
   const clearFilters = () => {
     setSelectedTag('');
     setStartDate('');
     setEndDate('');
+    setTagSearchQuery('');
   };
 
   const handleOpenTagActions = (label: string) => {
@@ -327,8 +354,139 @@ export const TagQueryView: React.FC<TagQueryViewProps> = ({
         />
       </div>
 
-      {/* 2. 1-ROW COMPACT FILTER BAR */}
-      <div className="glass-panel p-3.5 rounded-2xl border border-slate-800">
+      {/* 2. 1-ROW COMPACT FILTER BAR & TAG SEARCH */}
+      <div className="glass-panel p-3.5 rounded-2xl border border-slate-800 space-y-3">
+        {/* Etiket Arama ve Hızlı Yönetim Çubuğu */}
+        <div className="relative">
+          <div className="flex items-center space-x-2 bg-slate-900/90 border border-slate-700/80 focus-within:border-teal-400 focus-within:ring-1 focus-within:ring-teal-400/40 rounded-xl px-3 py-2 transition-all shadow-sm">
+            <Search className="w-4 h-4 text-teal-400 shrink-0" />
+            <input
+              type="text"
+              value={tagSearchQuery}
+              onChange={e => setTagSearchQuery(e.target.value)}
+              placeholder="Etiket ara & yönet (örn: jimmy james, spor, mekan)..."
+              className="w-full bg-transparent text-xs text-white placeholder-slate-500 outline-none"
+            />
+            {tagSearchQuery && (
+              <button
+                type="button"
+                onClick={() => setTagSearchQuery('')}
+                className="text-slate-400 hover:text-white p-0.5 rounded transition-colors"
+                title="Aramayı Temizle"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* Anlık Eşleşen Etiketler Arama & Hızlı Bağlama Paneli */}
+          {tagSearchQuery.trim().length > 0 && (
+            <div className="absolute top-full left-0 right-0 mt-1.5 z-30 bg-slate-900/95 border border-slate-700/80 backdrop-blur-xl rounded-2xl shadow-2xl p-2 max-h-64 overflow-y-auto space-y-1">
+              <div className="px-2 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between border-b border-slate-800 pb-1.5 mb-1">
+                <span>Eşleşen Etiketler ({searchedMatchingTags.length})</span>
+                <span className="text-slate-500 font-normal">Tıkla: Filtrele • 🔗: Bağla • ⚙️: Yönet</span>
+              </div>
+
+              {searchedMatchingTags.length === 0 ? (
+                <div className="p-3 text-center text-xs text-slate-400 space-y-2">
+                  <p>"{tagSearchQuery}" adında kayıtlı bir etiket bulunamadı.</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const clean = normalizeTag(tagSearchQuery);
+                      setLinkModalTag(clean);
+                      setInputParentTag('');
+                      setInputChildTag('');
+                      setLinkError(null);
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-teal-500/20 text-teal-300 border border-teal-500/40 hover:bg-teal-500/30 text-xs font-semibold inline-flex items-center space-x-1.5 transition-all"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>"#{normalizeTag(tagSearchQuery)}" Etiketini Yeni Olarak Tanımla & Bağla</span>
+                  </button>
+                </div>
+              ) : (
+                searchedMatchingTags.map(tag => {
+                  const parents = getParentTags(tag, tagParents);
+                  const children = getChildTags(tag, tagParents);
+                  const directSpent = tagDirectTotals[tag]?.total || 0;
+                  const isSelected = selectedTag === tag;
+
+                  return (
+                    <div
+                      key={tag}
+                      className={`flex items-center justify-between p-2 rounded-xl border transition-all text-xs ${
+                        isSelected
+                          ? 'bg-teal-950/40 border-teal-500/60 ring-1 ring-teal-500/30'
+                          : 'bg-slate-800/60 hover:bg-slate-800 border-slate-700/50'
+                      }`}
+                    >
+                      <div
+                        onClick={() => {
+                          setSelectedTag(prev => (prev === tag ? '' : tag));
+                          setTagSearchQuery('');
+                        }}
+                        className="flex items-center space-x-2 min-w-0 cursor-pointer flex-1"
+                        title="Bu etiketi seç ve harcamalarını filtrele"
+                      >
+                        <span className="font-bold text-teal-300 truncate">#{tag}</span>
+                        {directSpent > 0 && (
+                          <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/10 px-1.5 py-0.2 rounded shrink-0">
+                            {formatCurrency(directSpent)}
+                          </span>
+                        )}
+                        {parents.length > 0 && (
+                          <span className="text-[10px] text-blue-300 bg-blue-500/15 border border-blue-500/30 px-1.5 py-0.2 rounded truncate max-w-[120px]">
+                            Üst: {parents.join(', ')}
+                          </span>
+                        )}
+                        {children.length > 0 && (
+                          <span className="text-[10px] text-purple-300 bg-purple-500/15 border border-purple-500/30 px-1.5 py-0.2 rounded shrink-0">
+                            Alt: {children.length}
+                          </span>
+                        )}
+                        {parents.length === 0 && children.length === 0 && (
+                          <span className="text-[10px] text-slate-500 font-normal shrink-0">
+                            Bağımsız
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center space-x-1 shrink-0 ml-2">
+                        {/* Hızlı Bağla Butonu (Kullanıcının talep ettiği direkt üst/alt bağlama) */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLinkModalTag(tag);
+                            setInputParentTag('');
+                            setInputChildTag('');
+                            setLinkError(null);
+                          }}
+                          className="px-2 py-1 rounded-lg text-[11px] font-bold bg-teal-500/20 text-teal-300 hover:bg-teal-500/30 border border-teal-500/40 flex items-center space-x-1 transition-all"
+                          title={`#${tag} etiketini bir üst etikete (örn: mekan, sağlık) bağla`}
+                        >
+                          <Link2 className="w-3 h-3" />
+                          <span>Bağla</span>
+                        </button>
+
+                        {/* Tüm İşlemler (Düzenle, Birleştir, Sil) Butonu */}
+                        <button
+                          type="button"
+                          onClick={() => handleOpenTagActions(tag)}
+                          className="p-1.5 rounded-lg text-[11px] font-semibold bg-slate-700/60 hover:bg-slate-700 text-slate-300 border border-slate-600/50 flex items-center transition-all"
+                          title="Tüm İşlemler (Ağ Yapısı, Düzenle, Birleştir, Sil)"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+        </div>
+
         <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-2.5">
           {/* Tag Selector */}
           <div className="flex items-center space-x-2 flex-1 min-w-[200px]">
@@ -340,7 +498,7 @@ export const TagQueryView: React.FC<TagQueryViewProps> = ({
             >
               <option value="">Tüm Etiketler ({allTags.length})</option>
               <option value="__untagged__">Etiketsiz Harcamalar</option>
-              {allTags.map(tag => (
+              {(tagSearchQuery ? searchedMatchingTags : allTags).map(tag => (
                 <option key={tag} value={tag}>
                   #{tag}
                 </option>

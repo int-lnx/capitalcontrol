@@ -40,7 +40,7 @@ export const SavingsView: React.FC<SavingsViewProps> = ({
   const effectiveShowTheor = showTheoretical !== undefined ? showTheoretical : localShowTheor;
   const handleToggleTheor = onToggleTheoretical || (() => setLocalShowTheor(p => !p));
 
-  const [selectedLevel, setSelectedLevel] = useState<NecessityLevel | 'ALL' | 'FIRSAT'>('ALL');
+  const [selectedLevel, setSelectedLevel] = useState<NecessityLevel | 'ALL' | 'FIRSAT' | 'SAVINGS'>('ALL');
   const [localMonthFilter, setLocalMonthFilter] = useState<string>(currentMonthKey);
   const selectedMonthFilter = periodFilter !== undefined ? periodFilter : localMonthFilter;
   const setSelectedMonthFilter = onPeriodFilterChange || setLocalMonthFilter;
@@ -129,6 +129,12 @@ export const SavingsView: React.FC<SavingsViewProps> = ({
   // Filtered expense items
   const filteredExpenses = baseExpenses.filter(exp => {
     const isOpp = Boolean(exp.paymentType === 'firsat' || exp.isOpportunity);
+    if (selectedLevel === 'SAVINGS') {
+      // İsraf + Kaçınılabilir (veya Gereksiz) + Kaçan Fırsat
+      if (isOpp) return true;
+      const rawLvl = exp.necessity as string;
+      return rawLvl === 'İsraf' || rawLvl === 'Kaçınılabilir' || rawLvl === 'Gereksiz';
+    }
     if (selectedLevel === 'FIRSAT') {
       return isOpp;
     }
@@ -196,7 +202,7 @@ export const SavingsView: React.FC<SavingsViewProps> = ({
         <PieChart
           data={chartData}
           customTotal={periodTotalSpent > 0 ? periodTotalSpent : undefined}
-          selectedLabel={selectedLevel === 'ALL' || selectedLevel === 'FIRSAT' ? undefined : NECESSITY_METAS[selectedLevel]?.label}
+          selectedLabel={selectedLevel === 'ALL' || selectedLevel === 'FIRSAT' || selectedLevel === 'SAVINGS' ? undefined : NECESSITY_METAS[selectedLevel]?.label}
           onSliceClick={(label) => {
             const matchedKey = ALL_LEVELS.find(lvl => NECESSITY_METAS[lvl].label === label || lvl === label);
             if (matchedKey) {
@@ -222,10 +228,20 @@ export const SavingsView: React.FC<SavingsViewProps> = ({
         </div>
 
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-          {/* Ayrı Satırda Kaçan Fırsatlar */}
-          <div className="p-2.5 px-3.5 bg-slate-800/80 rounded-xl border border-amber-500/30 text-right">
-            <span className="text-amber-400 block text-[10px] uppercase font-bold tracking-wider">
-              🎯 Kaçan Fırsatlar
+          {/* Ayrı Satırda Kaçan Fırsatlar (Tıklanabilir Filtre) */}
+          <button
+            type="button"
+            onClick={() => setSelectedLevel(prev => prev === 'FIRSAT' ? 'ALL' : 'FIRSAT')}
+            className={`p-2.5 px-3.5 rounded-xl border text-right transition-all select-none cursor-pointer active:scale-[0.98] ${
+              selectedLevel === 'FIRSAT'
+                ? 'bg-amber-950/60 border-amber-400 ring-2 ring-amber-400/50 shadow-lg shadow-amber-950/40'
+                : 'bg-slate-800/80 border-amber-500/30 hover:border-amber-400/60 hover:bg-slate-800'
+            }`}
+            title="Sadece kaçan fırsat kayıtlarını listelemek için tıklayın"
+          >
+            <span className="text-amber-400 block text-[10px] uppercase font-bold tracking-wider flex items-center justify-end gap-1">
+              <span>🎯 Kaçan Fırsatlar</span>
+              {selectedLevel === 'FIRSAT' && <span className="text-[9px] text-amber-300 font-bold">● Seçili</span>}
             </span>
             <div className="flex items-baseline justify-end gap-1.5">
               <span className="text-sm sm:text-base font-black text-amber-300">
@@ -235,12 +251,22 @@ export const SavingsView: React.FC<SavingsViewProps> = ({
                 ({opportunityExpenses.length} fırsat)
               </span>
             </div>
-          </div>
+          </button>
 
-          {/* Toplam Tasarruf Edilebilir Miktar (Kaçınılabilir + İsraf + Kaçan Fırsatlar) */}
-          <div className="p-2.5 px-3.5 bg-slate-800/90 rounded-xl border border-rose-500/40 text-right shadow-sm">
-            <span className="text-slate-300 block text-[10px] uppercase font-bold tracking-wider">
-              Toplam Tasarruf Edilebilir
+          {/* Toplam Tasarruf Edilebilir Miktar (Tıklanabilir Liste Göstergesi: Kaçınılabilir + İsraf + Kaçan Fırsatlar) */}
+          <button
+            type="button"
+            onClick={() => setSelectedLevel(prev => prev === 'SAVINGS' ? 'ALL' : 'SAVINGS')}
+            className={`p-2.5 px-3.5 rounded-xl border text-right shadow-sm transition-all select-none cursor-pointer active:scale-[0.98] ${
+              selectedLevel === 'SAVINGS'
+                ? 'bg-rose-950/60 border-rose-400 ring-2 ring-rose-400/60 shadow-lg shadow-rose-950/50'
+                : 'bg-slate-800/90 border-rose-500/40 hover:border-rose-400/80 hover:bg-slate-800'
+            }`}
+            title="Tasarruf edilebilir tüm kayıtları (İsraf + Kaçınılabilir + Fırsat) listelemek için tıklayın"
+          >
+            <span className="text-slate-300 block text-[10px] uppercase font-bold tracking-wider flex items-center justify-end gap-1">
+              <span>Toplam Tasarruf Edilebilir</span>
+              {selectedLevel === 'SAVINGS' && <span className="text-[9px] text-rose-400 font-bold">● Seçili</span>}
             </span>
             <div className="flex items-baseline justify-end gap-1.5">
               <span className="text-base sm:text-lg font-black text-rose-400">
@@ -250,7 +276,7 @@ export const SavingsView: React.FC<SavingsViewProps> = ({
                 (İsraf: {formatCurrency(wasteAndUnnecessary)}{periodTotalSpent > 0 ? ` • %${savingsPotentialPercent.toFixed(1)}` : ''})
               </span>
             </div>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -315,6 +341,8 @@ export const SavingsView: React.FC<SavingsViewProps> = ({
             <h3 className="text-xs sm:text-sm font-bold text-white">
               {selectedLevel === 'ALL'
                 ? 'Tüm Harcamalar & Fırsatlar'
+                : selectedLevel === 'SAVINGS'
+                ? 'Toplam Tasarruf Edilebilir Kayıtlar (İsraf + Kaçınılabilir + Fırsat)'
                 : selectedLevel === 'FIRSAT'
                 ? 'Kaçan Fırsatlar'
                 : `${NECESSITY_METAS[selectedLevel]?.label} Seviyesindeki Harcamalar`}
