@@ -22,6 +22,7 @@ import {
 import { useExpenses } from '../context/ExpenseContext';
 import { useAuth } from '../context/AuthContext';
 import { APP_VERSION } from '../utils/version';
+import { RevisionNotesModal } from './RevisionNotesModal';
 
 interface HeaderProps {
   activeMainTab: MainTabType;
@@ -42,6 +43,7 @@ export const Header: React.FC<HeaderProps> = ({
   // PWA Install Prompt State
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [canInstall, setCanInstall] = useState<boolean>(false);
+  const [isRevisionModalOpen, setIsRevisionModalOpen] = useState<boolean>(false);
 
   useEffect(() => {
     const handleBeforeInstallPrompt = (e: Event) => {
@@ -109,9 +111,14 @@ export const Header: React.FC<HeaderProps> = ({
             <div className="truncate">
               <h1 className="text-sm sm:text-base font-bold bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent truncate leading-tight flex items-center gap-1.5">
                 <span>Masraf Yönetimi</span>
-                <span className="text-[10px] font-mono font-semibold px-1.5 py-0.2 rounded bg-teal-500/15 text-teal-300 border border-teal-500/30 tracking-tight shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsRevisionModalOpen(true)}
+                  className="text-[10px] font-mono font-semibold px-1.5 py-0.2 rounded bg-teal-500/15 hover:bg-teal-500/30 active:scale-95 text-teal-300 border border-teal-500/30 tracking-tight shrink-0 transition-all cursor-pointer"
+                  title="Sürüm geçmişi ve revizyon notlarını görüntülemek için tıklayın"
+                >
                   rev {APP_VERSION}
-                </span>
+                </button>
               </h1>
               <div className="flex items-center gap-1 text-[10px] text-slate-400 leading-none">
                 <span className="hidden sm:inline">Finans Portalı</span>
@@ -230,6 +237,12 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
       </div>
+
+      {/* Sürüm & Revizyon Notları Pop-up Modal */}
+      <RevisionNotesModal
+        isOpen={isRevisionModalOpen}
+        onClose={() => setIsRevisionModalOpen(false)}
+      />
     </header>
   );
 };
