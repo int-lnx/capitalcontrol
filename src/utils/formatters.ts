@@ -41,3 +41,99 @@ export const getTodayString = (): string => {
   const today = new Date();
   return today.toISOString().split('T')[0];
 };
+
+/**
+ * Evaluates a mathematical formula or numeric string (e.g., "=100+200", "100+200", "150*1.2-30", "12,5+7,5").
+ * Returns the rounded numeric result (2 decimal places), or NaN if invalid.
+ */
+export const evaluateFormula = (input: string): number => {
+  if (!input) return NaN;
+  const trimmed = input.trim();
+  if (!trimmed) return NaN;
+
+  // Strip optional leading '=' and spaces, normalize comma to dot
+  const expr = trimmed.replace(/^=/, '').replace(/\s+/g, '').replace(/,/g, '.');
+  if (!expr) return NaN;
+
+  // Allow only digits, decimal points, parentheses, and +, -, *, /
+  if (!/^[0-9.+\-*/()]+$/.test(expr)) return NaN;
+
+  // Tokenizer & Recursive Descent Parser for safe arithmetic evaluation
+  let pos = 0;
+
+  const parseExpression = (): number => {
+    let val = parseTerm();
+    while (pos < expr.length && (expr[pos] === '+' || expr[pos] === '-')) {
+      const op = expr[pos++];
+      const right = parseTerm();
+      val = op === '+' ? val + right : val - right;
+    }
+    return val;
+  };
+
+  const parseTerm = (): number => {
+    let val = parseFactor();
+    while (pos < expr.length && (expr[pos] === '*' || expr[pos] === '/')) {
+      const op = expr[pos++];
+      const right = parseFactor();
+      if (op === '*') {
+        val = val * right;
+      } else {
+        if (right === 0) return NaN;
+        val = val / right;
+      }
+    }
+    return val;
+  };
+
+  const parseFactor = (): number => {
+    // Handle unary + or -
+    if (expr[pos] === '+') {
+      pos++;
+      return parseFactor();
+    }
+    if (expr[pos] === '-') {
+      pos++;
+      return -parseFactor();
+    }
+
+    // Handle parentheses
+    if (expr[pos] === '(') {
+      pos++;
+      const val = parseExpression();
+      if (expr[pos] !== ')') return NaN;
+      pos++;
+      return val;
+    }
+
+    // Parse number
+    const start = pos;
+    let dotCount = 0;
+    while (pos < expr.length && ((expr[pos] >= '0' && expr[pos] <= '9') || expr[pos] === '.')) {
+      if (expr[pos] === '.') dotCount++;
+      pos++;
+    }
+    if (start === pos || dotCount > 1) return NaN;
+    const numStr = expr.slice(start, pos);
+    if (numStr === '.') return NaN;
+    return parseFloat(numStr);
+  };
+
+  const result = parseExpression();
+  if (pos !== expr.length || !Number.isFinite(result)) {
+    return NaN;
+  }
+
+  return Math.round(result * 100) / 100;
+};
+
+/**
+ * Checks whether the given string is a formula (starts with '=' or contains binary operators).
+ */
+export const isFormulaExpression = (input: string): boolean => {
+  if (!input) return false;
+  const trimmed = input.trim();
+  if (trimmed.startsWith('=')) return true;
+  // Contains +, *, /, or a '-' not at index 0
+  return /[+*/]/.test(trimmed) || trimmed.slice(1).includes('-');
+};

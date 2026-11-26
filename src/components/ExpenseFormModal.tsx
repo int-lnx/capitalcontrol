@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { X, Tag as TagIcon, Check, Calendar, CreditCard, ShieldAlert, Sparkles, Edit3, Repeat, Clock, TrendingUp, Trash2, Plus, Scissors, Layers, Coins, Target } from 'lucide-react';
 import { useExpenses } from '../context/ExpenseContext';
 import type { PaymentType, RecurrenceFrequency, NecessityLevel, Expense } from '../types';
-import { getTodayString, formatCurrency } from '../utils/formatters';
+import { getTodayString, formatCurrency, evaluateFormula, isFormulaExpression } from '../utils/formatters';
 import { withParentTags } from '../utils/tagHierarchy';
 import { TagChips } from './TagChips';
 
@@ -91,6 +91,33 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
   const [splits, setSplits] = useState<SplitItem[]>([]);
   const [activeSplitIndex, setActiveSplitIndex] = useState<number>(0);
   const [activeSplitAmountInput, setActiveSplitAmountInput] = useState<string>('');
+
+  // Input refs for mobile operator bar
+  const amountInputRef = useRef<HTMLInputElement>(null);
+  const splitInputRef = useRef<HTMLInputElement>(null);
+  const activeSplitInputRef = useRef<HTMLInputElement>(null);
+
+  const insertOperator = (
+    inputRef: React.RefObject<HTMLInputElement | null>,
+    currentVal: string,
+    onChangeFn: (val: string) => void,
+    op: string
+  ) => {
+    const el = inputRef.current;
+    if (el) {
+      const start = el.selectionStart ?? currentVal.length;
+      const end = el.selectionEnd ?? currentVal.length;
+      const nextVal = currentVal.slice(0, start) + op + currentVal.slice(end);
+      onChangeFn(nextVal);
+      setTimeout(() => {
+        el.focus();
+        const nextPos = start + op.length;
+        el.setSelectionRange(nextPos, nextPos);
+      }, 0);
+    } else {
+      onChangeFn(currentVal + op);
+    }
+  };
 
   // Quick category creation states
   const [isQuickAddingCat, setIsQuickAddingCat] = useState<boolean>(false);
@@ -367,7 +394,9 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
       .slice(0, 8);
   }, [tagInput, allKnownTags, tags]);
 
-  const rawNumber = parseFloat(amount) || 0;
+  const evaluatedAmount = evaluateFormula(amount);
+  const rawNumber = !isNaN(evaluatedAmount) ? evaluatedAmount : 0;
+  const isAmountFormula = isFormulaExpression(amount);
   // If user entered total amount, calculate installment amount; if entered installment, calculate total
   const calculatedTotal = paymentType === 'taksitli' && !isAmountTotal
     ? rawNumber * (installmentCount || 1)
@@ -379,7 +408,7 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
   // Dynamic recalculation when total amount changes in split mode
   const handleAmountChange = (newAmountStr: string) => {
     setAmount(newAmountStr);
-    const newTotal = parseFloat(newAmountStr);
+    const newTotal = evaluateFormula(newAmountStr);
 
     if (isSplitMode && splits.length > 0) {
       if (isNaN(newTotal) || newTotal <= 0) return;
@@ -423,8 +452,18 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
     }
   };
 
+  const resolveAmountFormula = () => {
+    if (isFormulaExpression(amount)) {
+      const val = evaluateFormula(amount);
+      if (!isNaN(val) && val > 0) {
+        handleAmountChange(String(val));
+      }
+    }
+  };
+
   // Split management functions
   const handleOpenSplitBar = () => {
+    resolveAmountFormula();
     if (isNaN(rawNumber) || rawNumber <= 0) {
       alert('Lütfen önce bölmek istediğiniz toplam harcama tutarını giriniz.');
       return;
@@ -435,7 +474,7 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
   };
 
   const handleConfirmSplit = () => {
-    const splitVal = parseFloat(splitInputAmount);
+    const splitVal = evaluateFormula(splitInputAmount);
     if (isNaN(splitVal) || splitVal <= 0) {
       alert('Lütfen bölünecek geçerli bir tutar giriniz.');
       return;
@@ -625,7 +664,7 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
   // Handler for active split's amount modification: updates split amount and automatically recalculates total
   const handleSplitAmountInputChange = (valStr: string) => {
     setActiveSplitAmountInput(valStr);
-    const parsed = parseFloat(valStr);
+    const parsed = evaluateFormula(valStr);
     const newAmount = isNaN(parsed) ? 0 : Math.max(0, parsed);
 
     setSplits(prev => {
@@ -643,6 +682,15 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
 
       return next;
     });
+  };
+
+  const resolveActiveSplitAmountFormula = () => {
+    if (isFormulaExpression(activeSplitAmountInput)) {
+      const val = evaluateFormula(activeSplitAmountInput);
+      if (!isNaN(val) && val > 0) {
+        handleSplitAmountInputChange(String(val));
+      }
+    }
   };
 
   // Handler for title change: immediately syncs with active split title & tab name
@@ -1416,16 +1464,82 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
                 </div>
                 <div className="relative">
                   <input
-                    type="number"
-                    step="0.01"
+                    ref={amountInputRef}
+                    type="text"
+                    inputMode="decimal"
                     required
-                    placeholder="0.00"
+                    placeholder="0.00 veya =100+200"
                     value={amount}
                     onChange={e => handleAmountChange(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-800/90 border border-emerald-500/40 focus:border-emerald-400 rounded-xl text-white font-semibold placeholder-slate-500 outline-none transition-all"
+                    onBlur={resolveAmountFormula}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && isFormulaExpression(amount)) {
+                        const val = evaluateFormula(amount);
+                        if (!isNaN(val) && val > 0) {
+                          e.preventDefault();
+                          handleAmountChange(String(val));
+                        }
+                      }
+                    }}
+                    className="w-full px-3 py-2 pr-10 bg-slate-800/90 border border-emerald-500/40 focus:border-emerald-400 rounded-xl text-white font-semibold placeholder-slate-500 outline-none transition-all"
                   />
-                  <span className="absolute right-3 top-2 text-xs text-emerald-400 font-bold">TL</span>
+                  <span className="absolute right-3 top-2 text-xs text-emerald-400 font-bold pointer-events-none">TL</span>
                 </div>
+
+                {/* Mobil Hızlı İşlem / Formül Tuşları */}
+                <div className="mt-1.5 flex items-center gap-1 overflow-x-auto no-scrollbar">
+                  {(['+', '-', '*', '/', '(', ')'] as const).map(op => (
+                    <button
+                      key={op}
+                      type="button"
+                      onMouseDown={e => e.preventDefault()}
+                      onClick={() => insertOperator(amountInputRef, amount, handleAmountChange, op)}
+                      className="flex-1 min-w-[30px] py-1 rounded-lg bg-slate-800 hover:bg-slate-700 active:scale-95 border border-slate-700/80 text-emerald-300 font-bold text-xs text-center transition-all select-none shadow-sm"
+                      title={`"${op}" ekle`}
+                    >
+                      {op === '*' ? '×' : op === '/' ? '÷' : op}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => {
+                      if (isFormulaExpression(amount)) {
+                        resolveAmountFormula();
+                      } else {
+                        insertOperator(amountInputRef, amount, handleAmountChange, '=');
+                      }
+                    }}
+                    className={`flex-1 min-w-[36px] py-1 px-2 rounded-lg font-extrabold text-xs text-center transition-all select-none shadow-sm active:scale-95 border ${
+                      isAmountFormula && !isNaN(evaluatedAmount) && evaluatedAmount > 0
+                        ? 'bg-emerald-500 text-slate-950 border-emerald-400'
+                        : 'bg-slate-800 hover:bg-slate-700 text-teal-300 border-slate-700/80'
+                    }`}
+                    title={isAmountFormula ? 'Formülü Hesapla' : '"=" ekle'}
+                  >
+                    =
+                  </button>
+                </div>
+
+                {isAmountFormula && (
+                  <div className="mt-1 flex items-center justify-between px-2 py-0.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-[11px]">
+                    <span className="text-slate-400">Formül Sonucu:</span>
+                    {!isNaN(evaluatedAmount) && evaluatedAmount > 0 ? (
+                      <button
+                        type="button"
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={resolveAmountFormula}
+                        className="font-bold text-emerald-300 hover:text-emerald-200 flex items-center gap-1"
+                        title="Sonucu uygula"
+                      >
+                        <span>= {formatCurrency(evaluatedAmount)}</span>
+                        <span className="text-[9px] px-1 py-0.2 rounded bg-emerald-500/20 text-emerald-300">Uygula</span>
+                      </button>
+                    ) : (
+                      <span className="text-amber-400 font-medium">Hesaplanıyor...</span>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div>
@@ -1526,21 +1640,35 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
                 <div className="flex items-center gap-2">
                   <div className="relative flex-1">
                     <input
-                      type="number"
-                      step="0.01"
-                      placeholder="Ayrılacak Tutar (TL)..."
+                      ref={splitInputRef}
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="Ayrılacak Tutar (Örn: 150 veya =50+100)..."
                       value={splitInputAmount}
                       onChange={e => setSplitInputAmount(e.target.value)}
+                      onBlur={() => {
+                        if (isFormulaExpression(splitInputAmount)) {
+                          const val = evaluateFormula(splitInputAmount);
+                          if (!isNaN(val) && val > 0) setSplitInputAmount(String(val));
+                        }
+                      }}
                       onKeyDown={e => {
                         if (e.key === 'Enter') {
                           e.preventDefault();
+                          if (isFormulaExpression(splitInputAmount)) {
+                            const val = evaluateFormula(splitInputAmount);
+                            if (!isNaN(val) && val > 0) {
+                              setSplitInputAmount(String(val));
+                              return;
+                            }
+                          }
                           handleConfirmSplit();
                         }
                       }}
-                      className="w-full px-3 py-1.5 bg-slate-800 border border-slate-700 focus:border-teal-400 rounded-lg text-xs text-white outline-none"
+                      className="w-full px-3 py-1.5 pr-8 bg-slate-800 border border-slate-700 focus:border-teal-400 rounded-lg text-xs text-white outline-none"
                       autoFocus
                     />
-                    <span className="absolute right-2.5 top-1.5 text-xs text-slate-400 font-semibold">TL</span>
+                    <span className="absolute right-2.5 top-1.5 text-xs text-slate-400 font-semibold pointer-events-none">TL</span>
                   </div>
 
                   <button
@@ -1561,6 +1689,36 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
                   </button>
                 </div>
 
+                {/* Ayrılacak Tutar İçin Mobil Hızlı İşlem Tuşları */}
+                <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
+                  {(['+', '-', '*', '/', '(', ')'] as const).map(op => (
+                    <button
+                      key={op}
+                      type="button"
+                      onMouseDown={e => e.preventDefault()}
+                      onClick={() => insertOperator(splitInputRef, splitInputAmount, setSplitInputAmount, op)}
+                      className="flex-1 min-w-[28px] py-0.5 rounded-md bg-slate-800 hover:bg-slate-700 active:scale-95 border border-slate-700/80 text-teal-300 font-bold text-xs text-center transition-all select-none"
+                    >
+                      {op === '*' ? '×' : op === '/' ? '÷' : op}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => {
+                      if (isFormulaExpression(splitInputAmount)) {
+                        const val = evaluateFormula(splitInputAmount);
+                        if (!isNaN(val) && val > 0) setSplitInputAmount(String(val));
+                      } else {
+                        insertOperator(splitInputRef, splitInputAmount, setSplitInputAmount, '=');
+                      }
+                    }}
+                    className="flex-1 min-w-[34px] py-0.5 px-1.5 rounded-md bg-teal-500/20 hover:bg-teal-500/30 border border-teal-500/40 text-teal-300 font-extrabold text-xs text-center transition-all select-none active:scale-95"
+                  >
+                    =
+                  </button>
+                </div>
+
                 {/* Ayrılacak Tutarın Hemen Altında: Ayrılan Yerin Başlığı */}
                 <div className="relative">
                   <input
@@ -1578,29 +1736,33 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
                   />
                 </div>
 
-                {parseFloat(splitInputAmount) > 0 && (
-                  <div className="text-[11px] text-teal-300/90 flex justify-between bg-slate-800/60 px-2 py-1 rounded-md">
-                    {isSplitMode && splits[activeSplitIndex] ? (
-                      parseFloat(splitInputAmount) < splits[activeSplitIndex].amount ? (
-                        <>
-                          <span>1. Kısım: <b>{formatCurrency(parseFloat(splitInputAmount))}</b></span>
-                          <span>2. Kısım: <b>{formatCurrency(splits[activeSplitIndex].amount - parseFloat(splitInputAmount))}</b></span>
-                        </>
+                {(() => {
+                  const evaluatedSplitVal = evaluateFormula(splitInputAmount);
+                  if (isNaN(evaluatedSplitVal) || evaluatedSplitVal <= 0) return null;
+                  return (
+                    <div className="text-[11px] text-teal-300/90 flex justify-between bg-slate-800/60 px-2 py-1 rounded-md">
+                      {isSplitMode && splits[activeSplitIndex] ? (
+                        evaluatedSplitVal < splits[activeSplitIndex].amount ? (
+                          <>
+                            <span>1. Kısım: <b>{formatCurrency(evaluatedSplitVal)}</b></span>
+                            <span>2. Kısım: <b>{formatCurrency(splits[activeSplitIndex].amount - evaluatedSplitVal)}</b></span>
+                          </>
+                        ) : (
+                          <span className="text-rose-400">Girilen tutar seçili ayrımın tutarından küçük olmalıdır!</span>
+                        )
                       ) : (
-                        <span className="text-rose-400">Girilen tutar seçili ayrımın tutarından küçük olmalıdır!</span>
-                      )
-                    ) : (
-                      parseFloat(splitInputAmount) < rawNumber ? (
-                        <>
-                          <span>1. Ayrım: <b>{formatCurrency(parseFloat(splitInputAmount))}</b></span>
-                          <span>2. Ayrım (Kalan): <b>{formatCurrency(rawNumber - parseFloat(splitInputAmount))}</b></span>
-                        </>
-                      ) : (
-                        <span className="text-rose-400">Girilen tutar toplam tutardan küçük olmalıdır!</span>
-                      )
-                    )}
-                  </div>
-                )}
+                        evaluatedSplitVal < rawNumber ? (
+                          <>
+                            <span>1. Ayrım: <b>{formatCurrency(evaluatedSplitVal)}</b></span>
+                            <span>2. Ayrım (Kalan): <b>{formatCurrency(rawNumber - evaluatedSplitVal)}</b></span>
+                          </>
+                        ) : (
+                          <span className="text-rose-400">Girilen tutar toplam tutardan küçük olmalıdır!</span>
+                        )
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
@@ -1684,18 +1846,57 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
                         Bu ayrımın tutarını değiştirebilirsiniz. Toplam tutar otomatik güncellenir.
                       </p>
                     </div>
-                    <div className="relative w-full sm:w-44">
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0.01"
-                        required
-                        placeholder="0.00"
-                        value={activeSplitAmountInput}
-                        onChange={e => handleSplitAmountInputChange(e.target.value)}
-                        className="w-full px-3 py-1.5 bg-slate-900/90 border border-teal-500/60 focus:border-teal-400 rounded-lg text-white font-bold text-right pr-9 outline-none text-sm transition-all focus:ring-1 focus:ring-teal-400/50"
-                      />
-                      <span className="absolute right-3 top-1.5 text-xs text-teal-400 font-bold pointer-events-none">TL</span>
+                    <div className="w-full sm:w-52 space-y-1">
+                      <div className="relative">
+                        <input
+                          ref={activeSplitInputRef}
+                          type="text"
+                          inputMode="decimal"
+                          required
+                          placeholder="0.00 veya =50+100"
+                          value={activeSplitAmountInput}
+                          onChange={e => handleSplitAmountInputChange(e.target.value)}
+                          onBlur={resolveActiveSplitAmountFormula}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter' && isFormulaExpression(activeSplitAmountInput)) {
+                              const val = evaluateFormula(activeSplitAmountInput);
+                              if (!isNaN(val) && val > 0) {
+                                e.preventDefault();
+                                handleSplitAmountInputChange(String(val));
+                              }
+                            }
+                          }}
+                          className="w-full px-3 py-1.5 bg-slate-900/90 border border-teal-500/60 focus:border-teal-400 rounded-lg text-white font-bold text-right pr-9 outline-none text-sm transition-all focus:ring-1 focus:ring-teal-400/50"
+                        />
+                        <span className="absolute right-3 top-1.5 text-xs text-teal-400 font-bold pointer-events-none">TL</span>
+                      </div>
+                      <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
+                        {(['+', '-', '*', '/'] as const).map(op => (
+                          <button
+                            key={op}
+                            type="button"
+                            onMouseDown={e => e.preventDefault()}
+                            onClick={() => insertOperator(activeSplitInputRef, activeSplitAmountInput, handleSplitAmountInputChange, op)}
+                            className="flex-1 py-0.5 rounded bg-slate-900/90 hover:bg-slate-800 active:scale-95 border border-slate-700/80 text-teal-300 font-bold text-[11px] text-center transition-all select-none"
+                          >
+                            {op === '*' ? '×' : op === '/' ? '÷' : op}
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          onMouseDown={e => e.preventDefault()}
+                          onClick={() => {
+                            if (isFormulaExpression(activeSplitAmountInput)) {
+                              resolveActiveSplitAmountFormula();
+                            } else {
+                              insertOperator(activeSplitInputRef, activeSplitAmountInput, handleSplitAmountInputChange, '=');
+                            }
+                          }}
+                          className="flex-1 py-0.5 rounded bg-teal-500/20 hover:bg-teal-500/30 border border-teal-500/40 text-teal-300 font-extrabold text-[11px] text-center transition-all select-none active:scale-95"
+                        >
+                          =
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}

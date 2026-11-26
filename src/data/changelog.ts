@@ -7,6 +7,16 @@ export interface RevisionNote {
 
 export const REVISION_HISTORY: RevisionNote[] = [
   {
+    version: '2.08',
+    date: 'Kasım 2026',
+    title: 'Log Girişinde Formülasyon ve Mobil Hızlı İşlem Çubuğu',
+    highlights: [
+      'Harcama ve ayrım tutarı girişlerinde matematiksel formül hesaplama desteği eklendi (örn: =100+200 veya 150*2-50 yazıldığında otomatik olarak sonucu hesaplar).',
+      'Mobil sayısal klavye ile kolay formül yazabilmek için tutar alanlarının altına hızlı işlem tuşları (+, -, ×, ÷, (, ), =) eklendi.',
+      'Formül yazılırken anlık sonuç önizlemesi ve tek dokunuşla sonucu tutara dönüştürme özelliği eklendi.'
+    ],
+  },
+  {
     version: '2.07',
     date: 'Kasım 2026',
     title: 'Sürüm & Revizyon Notları Ekranı',
