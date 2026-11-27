@@ -7,6 +7,15 @@ export interface RevisionNote {
 
 export const REVISION_HISTORY: RevisionNote[] = [
   {
+    version: '2.09',
+    date: 'Kasım 2026',
+    title: 'Revizyon Notları Penceresi Hizalama Düzeltmesi',
+    highlights: [
+      'Revizyon Notları penceresinin üst bar (Header) içinde sıkışıp ekranın üstünden taşmasına yol açan konumlandırma hatası (React Portal ile) giderildi.',
+      'Masaüstü ve mobil ekranlarda tam ortalanmış ve kaydırılabilir (scrollable) görünüm sağlandı.'
+    ],
+  },
+  {
     version: '2.08',
     date: 'Kasım 2026',
     title: 'Log Girişinde Formülasyon ve Mobil Hızlı İşlem Çubuğu',
